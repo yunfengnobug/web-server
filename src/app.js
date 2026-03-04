@@ -5,6 +5,7 @@ require('dotenv').config()
 const { initDb } = require('./db')
 const authRoutes = require('./routes/auth')
 const cardKeyRoutes = require('./routes/cardKey')
+const cursorRoutes = require('./routes/cursor')
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -14,6 +15,7 @@ app.use(express.json())
 
 app.use('/api/auth', authRoutes)
 app.use('/api/card-keys', cardKeyRoutes)
+app.use('/api/cursor', cursorRoutes)
 
 app.use((err, _req, res, _next) => {
   console.error(err)
