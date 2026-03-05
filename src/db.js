@@ -36,6 +36,17 @@ async function initDb() {
   `)
 
   await pool.execute(`
+    CREATE TABLE IF NOT EXISTS card_categories (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      code VARCHAR(50) NOT NULL UNIQUE,
+      description VARCHAR(255) DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `)
+
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS card_keys (
       id INT AUTO_INCREMENT PRIMARY KEY,
       key_code VARCHAR(19) NOT NULL UNIQUE,
@@ -55,12 +66,15 @@ async function initDb() {
   `)
 
   await pool.execute(`
-    CREATE TABLE IF NOT EXISTS upgrade_records (
+    CREATE TABLE IF NOT EXISTS verify_records (
       id INT AUTO_INCREMENT PRIMARY KEY,
-      session_token VARCHAR(600) NOT NULL,
+      card_id INT NOT NULL,
       card_key_code VARCHAR(19) NOT NULL,
-      card_key_name VARCHAR(100) DEFAULT '',
-      checkout_response TEXT,
+      session_token VARCHAR(600) DEFAULT '',
+      action VARCHAR(50) NOT NULL DEFAULT 'upgrade',
+      success TINYINT(1) NOT NULL DEFAULT 0,
+      message VARCHAR(255) DEFAULT '',
+      status ENUM('active', 'deleted') DEFAULT 'active',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `)
@@ -75,6 +89,18 @@ async function initDb() {
     await pool.execute(
       "ALTER TABLE card_keys MODIFY COLUMN status ENUM('active', 'banned', 'used', 'expired', 'deleted') DEFAULT 'active'",
     )
+  } catch {
+    // Already updated
+  }
+
+  try {
+    await pool.execute('ALTER TABLE card_keys ADD COLUMN category_id INT DEFAULT NULL')
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    await pool.execute("ALTER TABLE card_keys MODIFY COLUMN name VARCHAR(100) DEFAULT ''")
   } catch {
     // Already updated
   }

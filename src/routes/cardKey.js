@@ -11,9 +11,13 @@ function generateKeyCode() {
   return crypto.randomBytes(8).toString('hex').toUpperCase().match(/.{4}/g).join('-')
 }
 
-function buildListFilter({ type, status, keyword }) {
+function buildListFilter({ type, status, keyword, categoryId }) {
   const conditions = []
   const params = []
+  if (categoryId) {
+    conditions.push('category_id = ?')
+    params.push(categoryId)
+  }
   if (type) {
     conditions.push('type = ?')
     params.push(type)
@@ -25,8 +29,8 @@ function buildListFilter({ type, status, keyword }) {
     conditions.push("status != 'deleted'")
   }
   if (keyword) {
-    conditions.push('(key_code LIKE ? OR name LIKE ? OR remark LIKE ?)')
-    params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`)
+    conditions.push('(key_code LIKE ? OR remark LIKE ?)')
+    params.push(`%${keyword}%`, `%${keyword}%`)
   }
   return {
     where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
@@ -36,13 +40,17 @@ function buildListFilter({ type, status, keyword }) {
 
 // ========== Batch generate ==========
 router.post('/generate', authMiddleware, async (req, res) => {
-  const { name, type, maxCount, duration, durationUnit, quantity } = req.body
+  const { type, maxCount, duration, durationUnit, quantity, categoryId } = req.body
 
-  if (!name || !type || !quantity || quantity < 1 || quantity > 500) {
+  if (!type || !quantity || quantity < 1 || quantity > 500 || !categoryId) {
     return res.json({ code: 400, message: '参数不合法' })
   }
 
   const pool = getPool()
+
+  const [[category]] = await pool.execute('SELECT name FROM card_categories WHERE id = ?', [categoryId])
+  const cardName = category ? category.name : ''
+
   const conn = await pool.getConnection()
   const codes = []
 
@@ -51,8 +59,8 @@ router.post('/generate', authMiddleware, async (req, res) => {
     for (let i = 0; i < quantity; i++) {
       const code = generateKeyCode()
       await conn.execute(
-        'INSERT INTO card_keys (key_code, name, type, max_count, duration, duration_unit) VALUES (?, ?, ?, ?, ?, ?)',
-        [code, name, type, type === 'count' ? maxCount : null, type === 'time' ? duration : null, type === 'time' ? durationUnit : null],
+        'INSERT INTO card_keys (key_code, name, type, max_count, duration, duration_unit, category_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [code, cardName, type, type === 'count' ? maxCount : null, type === 'time' ? duration : null, type === 'time' ? durationUnit : null, categoryId],
       )
       codes.push(code)
     }
@@ -126,6 +134,36 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   res.json({ code: 200, message: '已移至回收站' })
 })
 
+// ========== Batch delete ==========
+router.post('/batch-delete', authMiddleware, async (req, res) => {
+  const { ids } = req.body
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return res.json({ code: 400, message: '参数不合法' })
+  }
+
+  const pool = getPool()
+  const placeholders = ids.map(() => '?').join(',')
+
+  const [rows] = await pool.query(
+    `SELECT id, status FROM card_keys WHERE id IN (${placeholders})`,
+    ids,
+  )
+
+  const softIds = rows.filter((r) => r.status !== 'deleted').map((r) => r.id)
+  const hardIds = rows.filter((r) => r.status === 'deleted').map((r) => r.id)
+
+  if (softIds.length > 0) {
+    const sp = softIds.map(() => '?').join(',')
+    await pool.query(`UPDATE card_keys SET status = 'deleted' WHERE id IN (${sp})`, softIds)
+  }
+  if (hardIds.length > 0) {
+    const hp = hardIds.map(() => '?').join(',')
+    await pool.query(`DELETE FROM card_keys WHERE id IN (${hp})`, hardIds)
+  }
+
+  res.json({ code: 200, message: `已处理 ${rows.length} 条` })
+})
+
 // ========== Update remark ==========
 router.put('/:id/remark', authMiddleware, async (req, res) => {
   const { remark } = req.body
@@ -194,13 +232,22 @@ async function adjustTime(pool, card, action, value) {
 
 // ========== Public verify ==========
 router.post('/verify', async (req, res) => {
-  const { keyCode } = req.body
+  const { keyCode, categoryCode } = req.body
   if (!keyCode) {
     return res.json({ code: 400, valid: false, message: '卡密不能为空' })
   }
 
   const pool = getPool()
-  const [rows] = await pool.execute('SELECT * FROM card_keys WHERE key_code = ?', [keyCode])
+
+  let rows
+  if (categoryCode) {
+    ;[rows] = await pool.execute(
+      'SELECT ck.* FROM card_keys ck JOIN card_categories cc ON ck.category_id = cc.id WHERE ck.key_code = ? AND cc.code = ?',
+      [keyCode, categoryCode],
+    )
+  } else {
+    ;[rows] = await pool.execute('SELECT * FROM card_keys WHERE key_code = ?', [keyCode])
+  }
   if (rows.length === 0) {
     return res.json({ code: 200, valid: false, message: '卡密不存在' })
   }
