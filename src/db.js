@@ -54,6 +54,17 @@ async function initDb() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `)
 
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS upgrade_records (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      session_token VARCHAR(600) NOT NULL,
+      card_key_code VARCHAR(19) NOT NULL,
+      card_key_name VARCHAR(100) DEFAULT '',
+      checkout_response TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `)
+
   try {
     await pool.execute("ALTER TABLE card_keys ADD COLUMN remark VARCHAR(255) DEFAULT ''")
   } catch {

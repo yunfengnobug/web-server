@@ -6,6 +6,7 @@ const { initDb } = require('./db')
 const authRoutes = require('./routes/auth')
 const cardKeyRoutes = require('./routes/cardKey')
 const cursorRoutes = require('./routes/cursor')
+const upgradeRecordRoutes = require('./routes/upgradeRecord')
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -16,6 +17,7 @@ app.use(express.json())
 app.use('/api/auth', authRoutes)
 app.use('/api/card-keys', cardKeyRoutes)
 app.use('/api/cursor', cursorRoutes)
+app.use('/api/upgrade-records', upgradeRecordRoutes)
 
 app.use((err, _req, res, _next) => {
   console.error(err)

@@ -83,6 +83,20 @@ router.post("/upgrade", async (req, res) => {
     }
 
     if (data.status === 200) {
+      try {
+        const [existing] = await pool.execute(
+          "SELECT id FROM upgrade_records WHERE session_token = ? LIMIT 1",
+          [sessionToken],
+        );
+        if (existing.length === 0) {
+          await pool.execute(
+            "INSERT INTO upgrade_records (session_token, card_key_code, card_key_name, checkout_response) VALUES (?, ?, ?, ?)",
+            [sessionToken, cardKey, card.name, typeof parsedBody === "string" ? parsedBody : JSON.stringify(parsedBody)],
+          );
+        }
+      } catch (dbErr) {
+        console.error("[Upgrade Record] save failed:", dbErr);
+      }
       return res.json({ code: 200, message: "升级成功", data: parsedBody });
     }
     return res.json({
