@@ -84,6 +84,25 @@ router.post("/upgrade", async (req, res) => {
 
     if (data.status === 200) {
       try {
+        // 消耗卡密
+        if (card.type === "count") {
+          const newUsed = card.used_count + 1;
+          const exhausted = card.max_count !== -1 && newUsed >= card.max_count;
+          await pool.execute("UPDATE card_keys SET used_count = ?, status = ? WHERE id = ?", [
+            newUsed,
+            exhausted ? "used" : "active",
+            card.id,
+          ]);
+        } else if (card.type === "time" && !card.activated_at) {
+          const unitMap = { hour: "HOUR", day: "DAY", month: "MONTH", year: "YEAR" };
+          const unit = unitMap[card.duration_unit] || "DAY";
+          await pool.execute(
+            `UPDATE card_keys SET activated_at = NOW(), expire_at = DATE_ADD(NOW(), INTERVAL ? ${unit}) WHERE id = ?`,
+            [card.duration, card.id],
+          );
+        }
+
+        // 记录（同一 token 只记一次）
         const [existing] = await pool.execute(
           "SELECT id FROM upgrade_records WHERE session_token = ? LIMIT 1",
           [sessionToken],
@@ -95,7 +114,7 @@ router.post("/upgrade", async (req, res) => {
           );
         }
       } catch (dbErr) {
-        console.error("[Upgrade Record] save failed:", dbErr);
+        console.error("[Upgrade] post-process failed:", dbErr);
       }
       return res.json({ code: 200, message: "升级成功", data: parsedBody });
     }
