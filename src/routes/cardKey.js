@@ -21,6 +21,8 @@ function buildListFilter({ type, status, keyword }) {
   if (status) {
     conditions.push('status = ?')
     params.push(status)
+  } else {
+    conditions.push("status != 'deleted'")
   }
   if (keyword) {
     conditions.push('(key_code LIKE ? OR name LIKE ? OR remark LIKE ?)')
@@ -105,6 +107,23 @@ router.put('/:id/unban', authMiddleware, async (req, res) => {
   const pool = getPool()
   await pool.execute("UPDATE card_keys SET status = 'active' WHERE id = ?", [req.params.id])
   res.json({ code: 200, message: '解封成功' })
+})
+
+// ========== Delete ==========
+router.delete('/:id', authMiddleware, async (req, res) => {
+  const pool = getPool()
+  const [rows] = await pool.execute('SELECT status FROM card_keys WHERE id = ?', [req.params.id])
+  if (rows.length === 0) {
+    return res.json({ code: 404, message: '卡密不存在' })
+  }
+
+  if (rows[0].status === 'deleted') {
+    await pool.execute('DELETE FROM card_keys WHERE id = ?', [req.params.id])
+    return res.json({ code: 200, message: '已彻底删除' })
+  }
+
+  await pool.execute("UPDATE card_keys SET status = 'deleted' WHERE id = ?", [req.params.id])
+  res.json({ code: 200, message: '已移至回收站' })
 })
 
 // ========== Update remark ==========

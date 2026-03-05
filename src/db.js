@@ -48,7 +48,7 @@ async function initDb() {
       expire_at DATETIME DEFAULT NULL,
       activated_at DATETIME DEFAULT NULL,
       remark VARCHAR(255) DEFAULT '',
-      status ENUM('active', 'banned', 'used', 'expired') DEFAULT 'active',
+      status ENUM('active', 'banned', 'used', 'expired', 'deleted') DEFAULT 'active',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -58,6 +58,14 @@ async function initDb() {
     await pool.execute("ALTER TABLE card_keys ADD COLUMN remark VARCHAR(255) DEFAULT ''")
   } catch {
     // Column already exists
+  }
+
+  try {
+    await pool.execute(
+      "ALTER TABLE card_keys MODIFY COLUMN status ENUM('active', 'banned', 'used', 'expired', 'deleted') DEFAULT 'active'",
+    )
+  } catch {
+    // Already updated
   }
 
   console.log('Database initialized')
