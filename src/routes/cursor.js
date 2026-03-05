@@ -29,6 +29,11 @@ router.post("/upgrade", async (req, res) => {
     return res.json({ code: 400, message: "卡密已过期" });
   }
 
+  if (card.type === "time" && card.expire_at && new Date() >= new Date(card.expire_at)) {
+    await pool.execute("UPDATE card_keys SET status = 'expired' WHERE id = ?", [card.id]);
+    return res.json({ code: 400, message: "卡密已过期" });
+  }
+
   // 调用 Cursor checkout API（使用 https 模块，避免 fetch 的 Cookie 限制）
   const https = require("https");
   const requestBody = JSON.stringify({

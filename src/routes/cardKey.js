@@ -65,6 +65,13 @@ router.post('/generate', authMiddleware, async (req, res) => {
   res.json({ code: 200, message: '生成成功', data: { count: codes.length } })
 })
 
+// ========== Sync expired time cards ==========
+async function syncExpiredCards(pool) {
+  await pool.execute(
+    "UPDATE card_keys SET status = 'expired' WHERE type = 'time' AND status = 'active' AND expire_at IS NOT NULL AND expire_at <= NOW()",
+  )
+}
+
 // ========== List ==========
 router.get('/', authMiddleware, async (req, res) => {
   const page = parseInt(req.query.page) || 1
@@ -72,6 +79,8 @@ router.get('/', authMiddleware, async (req, res) => {
   const { where, params } = buildListFilter(req.query)
   const offset = (page - 1) * pageSize
   const pool = getPool()
+
+  await syncExpiredCards(pool)
 
   const [rows] = await pool.query(
     `SELECT * FROM card_keys ${where} ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
