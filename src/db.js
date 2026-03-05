@@ -70,7 +70,7 @@ async function initDb() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       card_id INT NOT NULL,
       card_key_code VARCHAR(19) NOT NULL,
-      session_token VARCHAR(600) DEFAULT '',
+      session_token TEXT,
       action VARCHAR(50) NOT NULL DEFAULT 'upgrade',
       success TINYINT(1) NOT NULL DEFAULT 0,
       message VARCHAR(255) DEFAULT '',
