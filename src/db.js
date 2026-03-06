@@ -1,6 +1,6 @@
-const mysql = require('mysql2/promise')
+const mysql = require("mysql2/promise");
 
-let pool = null
+let pool = null;
 
 async function initDb() {
   const config = {
@@ -8,20 +8,20 @@ async function initDb() {
     port: Number(process.env.DB_PORT) || 3306,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-  }
+  };
 
-  const connection = await mysql.createConnection(config)
+  const connection = await mysql.createConnection(config);
   await connection.execute(
     `CREATE DATABASE IF NOT EXISTS \`${process.env.DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
-  )
-  await connection.end()
+  );
+  await connection.end();
 
   pool = mysql.createPool({
     ...config,
     database: process.env.DB_NAME,
     waitForConnections: true,
     connectionLimit: 10,
-  })
+  });
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS users (
@@ -33,7 +33,7 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `)
+  `);
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS card_categories (
@@ -44,7 +44,7 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `)
+  `);
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS card_keys (
@@ -63,7 +63,7 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `)
+  `);
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS verify_records (
@@ -77,39 +77,75 @@ async function initDb() {
       status ENUM('active', 'deleted') DEFAULT 'active',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `)
+  `);
 
-  try {
-    await pool.execute("ALTER TABLE card_keys ADD COLUMN remark VARCHAR(255) DEFAULT ''")
-  } catch {
-    // Column already exists
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS card_contents (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      card_key_id INT NOT NULL UNIQUE,
+      content TEXT NOT NULL,
+      content_type ENUM('text', 'json') NOT NULL DEFAULT 'text',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS card_classes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      category_id INT NOT NULL,
+      type ENUM('count', 'time') NOT NULL,
+      max_count INT DEFAULT NULL,
+      duration INT DEFAULT NULL,
+      duration_unit ENUM('hour', 'day', 'month', 'year') DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS user_card_categories (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      description VARCHAR(255) DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS user_cards (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      category_id INT NOT NULL,
+      content TEXT NOT NULL,
+      is_assigned TINYINT(1) DEFAULT 0,
+      assigned_to_key_id INT DEFAULT NULL,
+      assigned_at DATETIME DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  const migrations = [
+    "ALTER TABLE card_keys ADD COLUMN remark VARCHAR(255) DEFAULT ''",
+    "ALTER TABLE card_keys MODIFY COLUMN status ENUM('active', 'banned', 'used', 'expired', 'deleted') DEFAULT 'active'",
+    "ALTER TABLE card_keys ADD COLUMN category_id INT DEFAULT NULL",
+    "ALTER TABLE card_keys MODIFY COLUMN name VARCHAR(100) DEFAULT ''",
+    "ALTER TABLE card_categories ADD COLUMN bound_user_category_id INT DEFAULT NULL",
+    "ALTER TABLE card_keys ADD COLUMN bound_user_card_id INT DEFAULT NULL",
+    "ALTER TABLE card_keys ADD COLUMN class_id INT DEFAULT NULL",
+    "ALTER TABLE card_keys ADD COLUMN is_sold TINYINT(1) DEFAULT 0",
+    "UPDATE card_keys SET is_sold = 1 WHERE used_count > 0 OR activated_at IS NOT NULL",
+  ];
+
+  for (const sql of migrations) {
+    try { await pool.execute(sql); } catch { /* already applied */ }
   }
 
-  try {
-    await pool.execute(
-      "ALTER TABLE card_keys MODIFY COLUMN status ENUM('active', 'banned', 'used', 'expired', 'deleted') DEFAULT 'active'",
-    )
-  } catch {
-    // Already updated
-  }
-
-  try {
-    await pool.execute('ALTER TABLE card_keys ADD COLUMN category_id INT DEFAULT NULL')
-  } catch {
-    // Column already exists
-  }
-
-  try {
-    await pool.execute("ALTER TABLE card_keys MODIFY COLUMN name VARCHAR(100) DEFAULT ''")
-  } catch {
-    // Already updated
-  }
-
-  console.log('Database initialized')
+  console.log("Database initialized");
 }
 
 function getPool() {
-  return pool
+  return pool;
 }
 
-module.exports = { initDb, getPool }
+module.exports = { initDb, getPool };

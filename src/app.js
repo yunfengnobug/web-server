@@ -6,8 +6,11 @@ const { initDb } = require('./db')
 const authRoutes = require('./routes/auth')
 const cardsRoutes = require('./routes/cards')
 const cardKeyRoutes = require('./routes/cardKey')
+const cardClassRoutes = require('./routes/cardClass')
 const cursorRoutes = require('./routes/cursor')
 const verifyRecordRoutes = require('./routes/verifyRecord')
+const userCardCategoryRoutes = require('./routes/userCardCategory')
+const userCardRoutes = require('./routes/userCard')
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -18,8 +21,11 @@ app.use(express.json())
 app.use('/api/auth', authRoutes)
 app.use('/api/cards', cardsRoutes)
 app.use('/api/card-keys', cardKeyRoutes)
+app.use('/api/card-classes', cardClassRoutes)
 app.use('/api/cursor', cursorRoutes)
 app.use('/api/verify-records', verifyRecordRoutes)
+app.use('/api/user-card-categories', userCardCategoryRoutes)
+app.use('/api/user-cards', userCardRoutes)
 
 app.use((err, _req, res, _next) => {
   console.error(err)

@@ -11,26 +11,38 @@ function generateKeyCode() {
   return crypto.randomBytes(8).toString('hex').toUpperCase().match(/.{4}/g).join('-')
 }
 
-function buildListFilter({ type, status, keyword, categoryId }) {
+function buildListFilter({ type, status, keyword, classId, isSold, activatedFrom, activatedTo }) {
   const conditions = []
   const params = []
-  if (categoryId) {
-    conditions.push('category_id = ?')
-    params.push(categoryId)
+  if (classId) {
+    conditions.push('ck.class_id = ?')
+    params.push(classId)
   }
   if (type) {
-    conditions.push('type = ?')
+    conditions.push('ck.type = ?')
     params.push(type)
   }
   if (status) {
-    conditions.push('status = ?')
+    conditions.push('ck.status = ?')
     params.push(status)
   } else {
-    conditions.push("status != 'deleted'")
+    conditions.push("ck.status != 'deleted'")
   }
   if (keyword) {
-    conditions.push('(key_code LIKE ? OR remark LIKE ?)')
+    conditions.push('(ck.key_code LIKE ? OR ck.remark LIKE ?)')
     params.push(`%${keyword}%`, `%${keyword}%`)
+  }
+  if (isSold !== undefined && isSold !== '') {
+    conditions.push('ck.is_sold = ?')
+    params.push(Number(isSold))
+  }
+  if (activatedFrom) {
+    conditions.push('ck.activated_at >= ?')
+    params.push(activatedFrom)
+  }
+  if (activatedTo) {
+    conditions.push('ck.activated_at <= ?')
+    params.push(activatedTo)
   }
   return {
     where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
@@ -40,16 +52,23 @@ function buildListFilter({ type, status, keyword, categoryId }) {
 
 // ========== Batch generate ==========
 router.post('/generate', authMiddleware, async (req, res) => {
-  const { type, maxCount, duration, durationUnit, quantity, categoryId } = req.body
+  const { quantity, classId } = req.body
 
-  if (!type || !quantity || quantity < 1 || quantity > 500 || !categoryId) {
+  if (!quantity || quantity < 1 || quantity > 500 || !classId) {
     return res.json({ code: 400, message: '参数不合法' })
   }
 
   const pool = getPool()
 
-  const [[category]] = await pool.execute('SELECT name FROM card_categories WHERE id = ?', [categoryId])
-  const cardName = category ? category.name : ''
+  const [[cardClass]] = await pool.execute(
+    'SELECT cl.*, cc.name AS category_name FROM card_classes cl JOIN card_categories cc ON cl.category_id = cc.id WHERE cl.id = ?',
+    [classId],
+  )
+  if (!cardClass) {
+    return res.json({ code: 404, message: '卡类不存在' })
+  }
+
+  const { category_id, category_name, type, max_count, duration, duration_unit } = cardClass
 
   const conn = await pool.getConnection()
   const codes = []
@@ -59,8 +78,8 @@ router.post('/generate', authMiddleware, async (req, res) => {
     for (let i = 0; i < quantity; i++) {
       const code = generateKeyCode()
       await conn.execute(
-        'INSERT INTO card_keys (key_code, name, type, max_count, duration, duration_unit, category_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [code, cardName, type, type === 'count' ? maxCount : null, type === 'time' ? duration : null, type === 'time' ? durationUnit : null, categoryId],
+        'INSERT INTO card_keys (key_code, name, type, max_count, duration, duration_unit, category_id, class_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [code, category_name, type, max_count, duration, duration_unit, category_id, classId],
       )
       codes.push(code)
     }
@@ -93,11 +112,14 @@ router.get('/', authMiddleware, async (req, res) => {
   await syncExpiredCards(pool)
 
   const [rows] = await pool.query(
-    `SELECT * FROM card_keys ${where} ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
+    `SELECT ck.*, IF(ck.bound_user_card_id IS NOT NULL OR cc.id IS NOT NULL, 1, 0) AS has_content
+     FROM card_keys ck
+     LEFT JOIN card_contents cc ON ck.id = cc.card_key_id
+     ${where} ORDER BY ck.created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
     params,
   )
   const [[{ total }]] = await pool.query(
-    `SELECT COUNT(*) as total FROM card_keys ${where}`,
+    `SELECT COUNT(*) as total FROM card_keys ck ${where}`,
     params,
   )
 
@@ -230,6 +252,63 @@ async function adjustTime(pool, card, action, value) {
   }
 }
 
+// ========== Extract (提卡) ==========
+router.post('/extract', authMiddleware, async (req, res) => {
+  const { classId, quantity } = req.body
+  if (!classId || !quantity || quantity < 1 || quantity > 500) {
+    return res.json({ code: 400, message: '参数不合法' })
+  }
+
+  const pool = getPool()
+  const [rows] = await pool.query(
+    "SELECT id, key_code FROM card_keys WHERE class_id = ? AND is_sold = 0 AND status != 'deleted' ORDER BY created_at ASC LIMIT ?",
+    [classId, quantity],
+  )
+
+  if (rows.length === 0) {
+    return res.json({ code: 400, message: '没有可提取的未售出卡密' })
+  }
+
+  const ids = rows.map((r) => r.id)
+  const placeholders = ids.map(() => '?').join(',')
+  await pool.query(`UPDATE card_keys SET is_sold = 1 WHERE id IN (${placeholders})`, ids)
+
+  res.json({
+    code: 200,
+    message: `成功提取 ${rows.length} 个卡密`,
+    data: { keys: rows.map((r) => r.key_code), count: rows.length },
+  })
+})
+
+// ========== Batch adjust ==========
+router.post('/batch-adjust', authMiddleware, async (req, res) => {
+  const { ids, action, value } = req.body
+  if (!ids || !Array.isArray(ids) || ids.length === 0 || !action || !value || value <= 0) {
+    return res.json({ code: 400, message: '参数不合法' })
+  }
+
+  const pool = getPool()
+  const placeholders = ids.map(() => '?').join(',')
+  const [rows] = await pool.query(
+    `SELECT * FROM card_keys WHERE id IN (${placeholders})`,
+    ids,
+  )
+
+  let successCount = 0
+  for (const card of rows) {
+    try {
+      if (card.type === 'count') {
+        await adjustCount(pool, card, action, value)
+      } else {
+        await adjustTime(pool, card, action, value)
+      }
+      successCount++
+    } catch { /* skip failed */ }
+  }
+
+  res.json({ code: 200, message: `成功调整 ${successCount} 条卡密` })
+})
+
 // ========== Public verify ==========
 router.post('/verify', async (req, res) => {
   const { keyCode, categoryCode } = req.body
@@ -242,7 +321,10 @@ router.post('/verify', async (req, res) => {
   let rows
   if (categoryCode) {
     ;[rows] = await pool.execute(
-      'SELECT ck.* FROM card_keys ck JOIN card_categories cc ON ck.category_id = cc.id WHERE ck.key_code = ? AND cc.code = ?',
+      `SELECT ck.* FROM card_keys ck
+       JOIN card_classes cl ON ck.class_id = cl.id
+       JOIN card_categories cc ON cl.category_id = cc.id
+       WHERE ck.key_code = ? AND cc.code = ?`,
       [keyCode, categoryCode],
     )
   } else {
@@ -277,7 +359,7 @@ async function verifyCountCard(pool, card) {
 
   const newUsed = card.used_count + 1
   const exhausted = card.max_count !== -1 && newUsed >= card.max_count
-  await pool.execute('UPDATE card_keys SET used_count = ?, status = ? WHERE id = ?', [
+  await pool.execute('UPDATE card_keys SET used_count = ?, status = ?, is_sold = 1 WHERE id = ?', [
     newUsed,
     exhausted ? 'used' : 'active',
     card.id,
@@ -297,7 +379,7 @@ async function verifyTimeCard(pool, card) {
   if (!card.activated_at) {
     const unit = SQL_UNIT[card.duration_unit] || 'DAY'
     await pool.execute(
-      `UPDATE card_keys SET activated_at = NOW(), expire_at = DATE_ADD(NOW(), INTERVAL ? ${unit}) WHERE id = ?`,
+      `UPDATE card_keys SET activated_at = NOW(), expire_at = DATE_ADD(NOW(), INTERVAL ? ${unit}), is_sold = 1 WHERE id = ?`,
       [card.duration, card.id],
     )
     const [[updated]] = await pool.execute('SELECT expire_at FROM card_keys WHERE id = ?', [card.id])
@@ -311,5 +393,105 @@ async function verifyTimeCard(pool, card) {
 
   return { code: 200, valid: true, message: '验证成功', data: { expireAt: card.expire_at } }
 }
+
+// ========== Public query content ==========
+router.post('/query-content', async (req, res) => {
+  const { keyCode, categoryCode } = req.body
+  if (!keyCode) {
+    return res.json({ code: 400, message: '卡密不能为空' })
+  }
+
+  const pool = getPool()
+
+  let rows
+  if (categoryCode) {
+    ;[rows] = await pool.execute(
+      `SELECT ck.*, cat.bound_user_category_id FROM card_keys ck
+       JOIN card_classes cl ON ck.class_id = cl.id
+       JOIN card_categories cat ON cl.category_id = cat.id
+       WHERE ck.key_code = ? AND cat.code = ?`,
+      [keyCode, categoryCode],
+    )
+  } else {
+    ;[rows] = await pool.execute(
+      `SELECT ck.*, cat.bound_user_category_id FROM card_keys ck
+       LEFT JOIN card_classes cl ON ck.class_id = cl.id
+       LEFT JOIN card_categories cat ON cl.category_id = cat.id
+       WHERE ck.key_code = ?`,
+      [keyCode],
+    )
+  }
+
+  if (rows.length === 0) {
+    return res.json({ code: 400, message: '卡密不存在' })
+  }
+
+  const card = rows[0]
+  if (card.status === 'banned') {
+    return res.json({ code: 400, message: '卡密已被封禁' })
+  }
+  if (card.status === 'used') {
+    if (!card.bound_user_card_id) {
+      return res.json({ code: 400, message: '卡密已使用' })
+    }
+  }
+  if (card.status === 'expired') {
+    return res.json({ code: 400, message: '卡密已过期' })
+  }
+  if (card.type !== 'count') {
+    return res.json({ code: 400, message: '仅次卡支持查询内容' })
+  }
+
+  if (card.bound_user_card_id) {
+    const [uc] = await pool.execute('SELECT content FROM user_cards WHERE id = ?', [card.bound_user_card_id])
+    if (uc.length === 0) {
+      return res.json({ code: 400, message: '绑定的用户卡密已被移除' })
+    }
+    return res.json({ code: 200, message: '查询成功', data: { content: uc[0].content, contentType: 'text' } })
+  }
+
+  if (!card.bound_user_category_id) {
+    const [legacy] = await pool.execute(
+      'SELECT content, content_type FROM card_contents WHERE card_key_id = ?',
+      [card.id],
+    )
+    if (legacy.length > 0) {
+      return res.json({ code: 200, message: '查询成功', data: { content: legacy[0].content, contentType: legacy[0].content_type } })
+    }
+    return res.json({ code: 400, message: '该分类未绑定用户卡密分类' })
+  }
+
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+
+    const [available] = await conn.execute(
+      'SELECT id, content FROM user_cards WHERE category_id = ? AND is_assigned = 0 LIMIT 1 FOR UPDATE',
+      [card.bound_user_category_id],
+    )
+    if (available.length === 0) {
+      await conn.rollback()
+      return res.json({ code: 400, message: '库存不足，该分类下已无可用的用户卡密' })
+    }
+
+    const userCard = available[0]
+    await conn.execute(
+      'UPDATE user_cards SET is_assigned = 1, assigned_to_key_id = ?, assigned_at = NOW() WHERE id = ?',
+      [card.id, userCard.id],
+    )
+    await conn.execute(
+      'UPDATE card_keys SET bound_user_card_id = ?, used_count = used_count + 1, is_sold = 1, status = ? WHERE id = ?',
+      [userCard.id, (card.max_count !== -1 && card.used_count + 1 >= card.max_count) ? 'used' : 'active', card.id],
+    )
+    await conn.commit()
+
+    return res.json({ code: 200, message: '查询成功', data: { content: userCard.content, contentType: 'text' } })
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
+  }
+})
 
 module.exports = router
