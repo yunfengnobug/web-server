@@ -11,7 +11,7 @@ function generateKeyCode() {
   return crypto.randomBytes(8).toString('hex').toUpperCase().match(/.{4}/g).join('-')
 }
 
-function buildListFilter({ type, status, keyword, classId, isSold, activatedFrom, activatedTo }) {
+function buildListFilter({ type, status, keyword, classId, isSold, activatedFrom, activatedTo, createdFrom, createdTo }) {
   const conditions = []
   const params = []
   if (classId) {
@@ -43,6 +43,14 @@ function buildListFilter({ type, status, keyword, classId, isSold, activatedFrom
   if (activatedTo) {
     conditions.push('ck.activated_at <= ?')
     params.push(activatedTo)
+  }
+  if (createdFrom) {
+    conditions.push('ck.created_at >= ?')
+    params.push(createdFrom)
+  }
+  if (createdTo) {
+    conditions.push('ck.created_at <= ?')
+    params.push(createdTo)
   }
   return {
     where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
@@ -111,11 +119,12 @@ router.get('/', authMiddleware, async (req, res) => {
 
   await syncExpiredCards(pool)
 
+  const sortOrder = req.query.sortOrder === 'ASC' ? 'ASC' : 'DESC'
   const [rows] = await pool.query(
     `SELECT ck.*, IF(ck.bound_user_card_id IS NOT NULL OR cc.id IS NOT NULL, 1, 0) AS has_content
      FROM card_keys ck
      LEFT JOIN card_contents cc ON ck.id = cc.card_key_id
-     ${where} ORDER BY ck.created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
+     ${where} ORDER BY ck.created_at ${sortOrder} LIMIT ${pageSize} OFFSET ${offset}`,
     params,
   )
   const [[{ total }]] = await pool.query(
@@ -186,6 +195,29 @@ router.post('/batch-delete', authMiddleware, async (req, res) => {
   res.json({ code: 200, message: `已处理 ${rows.length} 条` })
 })
 
+// ========== Update sold status ==========
+router.put('/:id/sold', authMiddleware, async (req, res) => {
+  const { isSold } = req.body
+  if (isSold === undefined || ![0, 1].includes(Number(isSold))) {
+    return res.json({ code: 400, message: '参数不合法' })
+  }
+  const pool = getPool()
+  await pool.execute('UPDATE card_keys SET is_sold = ? WHERE id = ?', [Number(isSold), req.params.id])
+  res.json({ code: 200, message: isSold ? '已标记为售出' : '已标记为未售' })
+})
+
+// ========== Batch update sold status ==========
+router.post('/batch-sold', authMiddleware, async (req, res) => {
+  const { ids, isSold } = req.body
+  if (!ids || !Array.isArray(ids) || ids.length === 0 || ![0, 1].includes(Number(isSold))) {
+    return res.json({ code: 400, message: '参数不合法' })
+  }
+  const pool = getPool()
+  const placeholders = ids.map(() => '?').join(',')
+  await pool.query(`UPDATE card_keys SET is_sold = ? WHERE id IN (${placeholders})`, [Number(isSold), ...ids])
+  res.json({ code: 200, message: `已更新 ${ids.length} 条卡密` })
+})
+
 // ========== Update remark ==========
 router.put('/:id/remark', authMiddleware, async (req, res) => {
   const { remark } = req.body
@@ -254,7 +286,7 @@ async function adjustTime(pool, card, action, value) {
 
 // ========== Extract (提卡) ==========
 router.post('/extract', authMiddleware, async (req, res) => {
-  const { classId, quantity } = req.body
+  const { classId, quantity, markSold = true } = req.body
   if (!classId || !quantity || quantity < 1 || quantity > 500) {
     return res.json({ code: 400, message: '参数不合法' })
   }
@@ -269,9 +301,11 @@ router.post('/extract', authMiddleware, async (req, res) => {
     return res.json({ code: 400, message: '没有可提取的未售出卡密' })
   }
 
-  const ids = rows.map((r) => r.id)
-  const placeholders = ids.map(() => '?').join(',')
-  await pool.query(`UPDATE card_keys SET is_sold = 1 WHERE id IN (${placeholders})`, ids)
+  if (markSold) {
+    const ids = rows.map((r) => r.id)
+    const placeholders = ids.map(() => '?').join(',')
+    await pool.query(`UPDATE card_keys SET is_sold = 1 WHERE id IN (${placeholders})`, ids)
+  }
 
   res.json({
     code: 200,
