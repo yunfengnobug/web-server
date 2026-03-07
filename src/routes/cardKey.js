@@ -344,7 +344,7 @@ router.post('/batch-adjust', authMiddleware, async (req, res) => {
 
 // ========== Public verify ==========
 router.post('/verify', async (req, res) => {
-  const { keyCode, categoryCode } = req.body
+  const { keyCode, appCode } = req.body
   if (!keyCode) {
     return res.json({ code: 400, valid: false, message: '卡密不能为空' })
   }
@@ -352,13 +352,13 @@ router.post('/verify', async (req, res) => {
   const pool = getPool()
 
   let rows
-  if (categoryCode) {
+  if (appCode) {
     ;[rows] = await pool.execute(
       `SELECT ck.* FROM card_keys ck
        JOIN card_classes cl ON ck.class_id = cl.id
        JOIN card_categories cc ON cl.category_id = cc.id
-       WHERE ck.key_code = ? AND cc.code = ?`,
-      [keyCode, categoryCode],
+       WHERE ck.key_code = ? AND cc.app_code = ?`,
+      [keyCode, appCode],
     )
   } else {
     ;[rows] = await pool.execute('SELECT * FROM card_keys WHERE key_code = ?', [keyCode])
@@ -429,7 +429,7 @@ async function verifyTimeCard(pool, card) {
 
 // ========== Public query content ==========
 router.post('/query-content', async (req, res) => {
-  const { keyCode, categoryCode } = req.body
+  const { keyCode, appCode } = req.body
   if (!keyCode) {
     return res.json({ code: 400, message: '卡密不能为空' })
   }
@@ -437,13 +437,13 @@ router.post('/query-content', async (req, res) => {
   const pool = getPool()
 
   let rows
-  if (categoryCode) {
+  if (appCode) {
     ;[rows] = await pool.execute(
       `SELECT ck.*, cl.bound_user_category_id FROM card_keys ck
        JOIN card_classes cl ON ck.class_id = cl.id
        JOIN card_categories cat ON cl.category_id = cat.id
-       WHERE ck.key_code = ? AND cat.code = ?`,
-      [keyCode, categoryCode],
+       WHERE ck.key_code = ? AND cat.app_code = ?`,
+      [keyCode, appCode],
     )
   } else {
     ;[rows] = await pool.execute(

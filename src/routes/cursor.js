@@ -16,7 +16,7 @@ async function recordVerify(pool, { cardId, cardKeyCode, sessionToken, success, 
 }
 
 router.post("/upgrade", async (req, res) => {
-  const { sessionToken, cardKey, categoryCode } = req.body;
+  const { sessionToken, cardKey, appCode } = req.body;
 
   if (!sessionToken || !cardKey) {
     return res.json({ code: 400, message: "缺少必要参数" });
@@ -25,10 +25,10 @@ router.post("/upgrade", async (req, res) => {
   const pool = getPool();
 
   let rows;
-  if (categoryCode) {
+  if (appCode) {
     [rows] = await pool.execute(
-      "SELECT ck.* FROM card_keys ck JOIN card_categories cc ON ck.category_id = cc.id WHERE ck.key_code = ? AND cc.code = ?",
-      [cardKey, categoryCode],
+      "SELECT ck.* FROM card_keys ck JOIN card_categories cc ON ck.category_id = cc.id WHERE ck.key_code = ? AND cc.app_code = ?",
+      [cardKey, appCode],
     );
   } else {
     [rows] = await pool.execute("SELECT * FROM card_keys WHERE key_code = ?", [cardKey]);
