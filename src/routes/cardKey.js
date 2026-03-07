@@ -62,8 +62,8 @@ function buildListFilter({ type, status, keyword, classId, isSold, activatedFrom
 router.post('/generate', authMiddleware, async (req, res) => {
   const { quantity, classId } = req.body
 
-  if (!quantity || quantity < 1 || quantity > 500 || !classId) {
-    return res.json({ code: 400, message: '参数不合法' })
+  if (!quantity || quantity < 1 || quantity > 200 || !classId) {
+    return res.json({ code: 400, message: '参数不合法，数量需在 1~200 之间' })
   }
 
   const pool = getPool()
@@ -78,26 +78,16 @@ router.post('/generate', authMiddleware, async (req, res) => {
 
   const { category_id, category_name, type, max_count, duration, duration_unit } = cardClass
 
-  const conn = await pool.getConnection()
-  const codes = []
+  const codes = Array.from({ length: quantity }, () => generateKeyCode())
+  const placeholders = codes.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ')
+  const values = codes.flatMap(code => [
+    code, category_name, type, max_count, duration, duration_unit, category_id, classId,
+  ])
 
-  try {
-    await conn.beginTransaction()
-    for (let i = 0; i < quantity; i++) {
-      const code = generateKeyCode()
-      await conn.execute(
-        'INSERT INTO card_keys (key_code, name, type, max_count, duration, duration_unit, category_id, class_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [code, category_name, type, max_count, duration, duration_unit, category_id, classId],
-      )
-      codes.push(code)
-    }
-    await conn.commit()
-  } catch (err) {
-    await conn.rollback()
-    throw err
-  } finally {
-    conn.release()
-  }
+  await pool.query(
+    `INSERT INTO card_keys (key_code, name, type, max_count, duration, duration_unit, category_id, class_id) VALUES ${placeholders}`,
+    values,
+  )
 
   res.json({ code: 200, message: '生成成功', data: { count: codes.length } })
 })
