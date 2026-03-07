@@ -135,6 +135,7 @@ async function initDb() {
     "ALTER TABLE card_keys ADD COLUMN class_id INT DEFAULT NULL",
     "ALTER TABLE card_keys ADD COLUMN is_sold TINYINT(1) DEFAULT 0",
     "UPDATE card_keys SET is_sold = 1 WHERE used_count > 0 OR activated_at IS NOT NULL",
+    "ALTER TABLE user_card_categories ADD COLUMN content_hint VARCHAR(255) DEFAULT ''",
   ];
 
   for (const sql of migrations) {

@@ -5,15 +5,15 @@ const authMiddleware = require('../middleware/auth')
 const router = express.Router()
 
 router.post('/', authMiddleware, async (req, res) => {
-  const { name, description } = req.body
+  const { name, description, contentHint } = req.body
   if (!name) {
     return res.json({ code: 400, message: '名称不能为空' })
   }
 
   const pool = getPool()
   await pool.execute(
-    'INSERT INTO user_card_categories (name, description) VALUES (?, ?)',
-    [name, description || ''],
+    'INSERT INTO user_card_categories (name, description, content_hint) VALUES (?, ?, ?)',
+    [name, description || '', contentHint || ''],
   )
   res.json({ code: 200, message: '创建成功' })
 })
@@ -71,15 +71,16 @@ router.get('/:id', authMiddleware, async (req, res) => {
 })
 
 router.put('/:id', authMiddleware, async (req, res) => {
-  const { name, description } = req.body
+  const { name, description, contentHint } = req.body
   if (!name) {
     return res.json({ code: 400, message: '名称不能为空' })
   }
 
   const pool = getPool()
-  await pool.execute('UPDATE user_card_categories SET name = ?, description = ? WHERE id = ?', [
+  await pool.execute('UPDATE user_card_categories SET name = ?, description = ?, content_hint = ? WHERE id = ?', [
     name,
     description || '',
+    contentHint || '',
     req.params.id,
   ])
   res.json({ code: 200, message: '更新成功' })

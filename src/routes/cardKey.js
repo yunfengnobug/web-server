@@ -477,11 +477,16 @@ router.post('/query-content', async (req, res) => {
   }
 
   if (card.bound_user_card_id) {
-    const [uc] = await pool.execute('SELECT content FROM user_cards WHERE id = ?', [card.bound_user_card_id])
+    const [uc] = await pool.execute(
+      `SELECT u.content, c.content_hint FROM user_cards u
+       LEFT JOIN user_card_categories c ON u.category_id = c.id
+       WHERE u.id = ?`,
+      [card.bound_user_card_id],
+    )
     if (uc.length === 0) {
       return res.json({ code: 400, message: '绑定的用户卡密已被移除' })
     }
-    return res.json({ code: 200, message: '查询成功', data: { content: uc[0].content, contentType: 'text' } })
+    return res.json({ code: 200, message: '查询成功', data: { content: uc[0].content, contentType: 'text', contentHint: uc[0].content_hint || '' } })
   }
 
   if (!card.bound_user_category_id) {
@@ -519,7 +524,9 @@ router.post('/query-content', async (req, res) => {
     )
     await conn.commit()
 
-    return res.json({ code: 200, message: '查询成功', data: { content: userCard.content, contentType: 'text' } })
+    const [hintRow] = await pool.execute('SELECT content_hint FROM user_card_categories WHERE id = ?', [card.bound_user_category_id])
+    const contentHint = hintRow.length > 0 ? (hintRow[0].content_hint || '') : ''
+    return res.json({ code: 200, message: '查询成功', data: { content: userCard.content, contentType: 'text', contentHint } })
   } catch (err) {
     await conn.rollback()
     throw err
