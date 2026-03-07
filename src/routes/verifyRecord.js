@@ -6,7 +6,7 @@ const router = express.Router()
 
 router.get('/', authMiddleware, async (req, res) => {
   const page = parseInt(req.query.page) || 1
-  const pageSize = parseInt(req.query.pageSize) || 20
+  const pageSize = parseInt(req.query.pageSize) || 15
   const offset = (page - 1) * pageSize
   const { cardId, success, keyword } = req.query
 
@@ -40,6 +40,40 @@ router.get('/', authMiddleware, async (req, res) => {
   )
 
   res.json({ code: 200, data: { list: rows, total, page, pageSize } })
+})
+
+router.get('/all-ids', authMiddleware, async (req, res) => {
+  const { cardId, success, keyword, withTokens } = req.query
+  const conditions = []
+  const params = []
+
+  if (cardId) {
+    conditions.push('card_id = ?')
+    params.push(cardId)
+  }
+  if (success !== undefined && success !== '') {
+    conditions.push('success = ?')
+    params.push(Number(success))
+  }
+  if (keyword) {
+    conditions.push('(card_key_code LIKE ? OR session_token LIKE ? OR message LIKE ?)')
+    params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`)
+  }
+  conditions.push("status != 'deleted'")
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const pool = getPool()
+
+  if (withTokens === '1') {
+    const [rows] = await pool.query(
+      `SELECT id, session_token FROM verify_records ${where} ORDER BY created_at DESC`,
+      params,
+    )
+    return res.json({ code: 200, data: { ids: rows.map(r => r.id), tokens: rows.map(r => r.session_token).filter(Boolean) } })
+  }
+
+  const [rows] = await pool.query(`SELECT id FROM verify_records ${where}`, params)
+  res.json({ code: 200, data: rows.map(r => r.id) })
 })
 
 router.delete('/:id', authMiddleware, async (req, res) => {

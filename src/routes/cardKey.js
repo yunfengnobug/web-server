@@ -112,7 +112,7 @@ async function syncExpiredCards(pool) {
 // ========== List ==========
 router.get('/', authMiddleware, async (req, res) => {
   const page = parseInt(req.query.page) || 1
-  const pageSize = parseInt(req.query.pageSize) || 20
+  const pageSize = parseInt(req.query.pageSize) || 15
   const { where, params } = buildListFilter(req.query)
   const offset = (page - 1) * pageSize
   const pool = getPool()
@@ -133,6 +133,15 @@ router.get('/', authMiddleware, async (req, res) => {
   )
 
   res.json({ code: 200, data: { list: rows, total, page, pageSize } })
+})
+
+// ========== All IDs ==========
+router.get('/all-ids', authMiddleware, async (req, res) => {
+  const { where, params } = buildListFilter(req.query)
+  const pool = getPool()
+  await syncExpiredCards(pool)
+  const [rows] = await pool.query(`SELECT ck.id FROM card_keys ck ${where}`, params)
+  res.json({ code: 200, data: rows.map(r => r.id) })
 })
 
 // ========== Ban / Unban ==========
@@ -440,7 +449,7 @@ router.post('/query-content', async (req, res) => {
   let rows
   if (categoryCode) {
     ;[rows] = await pool.execute(
-      `SELECT ck.*, cat.bound_user_category_id FROM card_keys ck
+      `SELECT ck.*, cl.bound_user_category_id FROM card_keys ck
        JOIN card_classes cl ON ck.class_id = cl.id
        JOIN card_categories cat ON cl.category_id = cat.id
        WHERE ck.key_code = ? AND cat.code = ?`,
@@ -448,7 +457,7 @@ router.post('/query-content', async (req, res) => {
     )
   } else {
     ;[rows] = await pool.execute(
-      `SELECT ck.*, cat.bound_user_category_id FROM card_keys ck
+      `SELECT ck.*, cl.bound_user_category_id FROM card_keys ck
        LEFT JOIN card_classes cl ON ck.class_id = cl.id
        LEFT JOIN card_categories cat ON cl.category_id = cat.id
        WHERE ck.key_code = ?`,

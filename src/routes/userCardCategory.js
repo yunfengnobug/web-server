@@ -20,7 +20,7 @@ router.post('/', authMiddleware, async (req, res) => {
 
 router.get('/', authMiddleware, async (req, res) => {
   const page = parseInt(req.query.page) || 1
-  const pageSize = parseInt(req.query.pageSize) || 20
+  const pageSize = parseInt(req.query.pageSize) || 15
   const offset = (page - 1) * pageSize
   const keyword = req.query.keyword || ''
   const pool = getPool()

@@ -41,7 +41,7 @@ router.post('/', authMiddleware, async (req, res) => {
 
 router.get('/', authMiddleware, async (req, res) => {
   const page = parseInt(req.query.page) || 1
-  const pageSize = parseInt(req.query.pageSize) || 20
+  const pageSize = parseInt(req.query.pageSize) || 15
   const offset = (page - 1) * pageSize
   const categoryId = req.query.categoryId
   const pool = getPool()
@@ -52,9 +52,11 @@ router.get('/', authMiddleware, async (req, res) => {
 
   const [rows] = await pool.query(
     `SELECT cl.*,
+       uc.name AS bound_user_category_name,
        (SELECT COUNT(*) FROM card_keys ck WHERE ck.class_id = cl.id AND ck.status != 'deleted') AS total_keys,
        (SELECT COUNT(*) FROM card_keys ck WHERE ck.class_id = cl.id AND ck.status != 'deleted' AND ck.is_sold = 0) AS remaining_keys
      FROM card_classes cl
+     LEFT JOIN user_card_categories uc ON cl.bound_user_category_id = uc.id
      WHERE cl.category_id = ?
      ORDER BY cl.created_at DESC
      LIMIT ${pageSize} OFFSET ${offset}`,
@@ -112,6 +114,31 @@ router.put('/:id', authMiddleware, async (req, res) => {
     ],
   )
   res.json({ code: 200, message: '更新成功' })
+})
+
+router.put('/:id/bind-user-category', authMiddleware, async (req, res) => {
+  const { userCategoryId } = req.body
+  if (!userCategoryId) {
+    return res.json({ code: 400, message: '请选择用户卡密分类' })
+  }
+
+  const pool = getPool()
+  const [[cat]] = await pool.execute('SELECT id FROM user_card_categories WHERE id = ?', [userCategoryId])
+  if (!cat) {
+    return res.json({ code: 404, message: '用户卡密分类不存在' })
+  }
+
+  await pool.execute('UPDATE card_classes SET bound_user_category_id = ? WHERE id = ?', [
+    userCategoryId,
+    req.params.id,
+  ])
+  res.json({ code: 200, message: '绑定成功' })
+})
+
+router.put('/:id/unbind-user-category', authMiddleware, async (req, res) => {
+  const pool = getPool()
+  await pool.execute('UPDATE card_classes SET bound_user_category_id = NULL WHERE id = ?', [req.params.id])
+  res.json({ code: 200, message: '解绑成功' })
 })
 
 router.delete('/:id', authMiddleware, async (req, res) => {

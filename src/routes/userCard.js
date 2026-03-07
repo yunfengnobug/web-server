@@ -52,7 +52,7 @@ router.post('/import', authMiddleware, async (req, res) => {
 
 router.get('/', authMiddleware, async (req, res) => {
   const page = parseInt(req.query.page) || 1
-  const pageSize = parseInt(req.query.pageSize) || 20
+  const pageSize = parseInt(req.query.pageSize) || 15
   const offset = (page - 1) * pageSize
   const { categoryId, assignStatus, keyword } = req.query
   const pool = getPool()
@@ -91,6 +91,31 @@ router.get('/', authMiddleware, async (req, res) => {
   )
 
   res.json({ code: 200, data: { list: rows, total, page, pageSize } })
+})
+
+router.get('/all-ids', authMiddleware, async (req, res) => {
+  const { categoryId, assignStatus, keyword } = req.query
+  const pool = getPool()
+  const conditions = []
+  const params = []
+
+  if (categoryId) {
+    conditions.push('category_id = ?')
+    params.push(categoryId)
+  }
+  if (assignStatus === 'assigned') {
+    conditions.push('is_assigned = 1')
+  } else if (assignStatus === 'unassigned') {
+    conditions.push('is_assigned = 0')
+  }
+  if (keyword) {
+    conditions.push('content LIKE ?')
+    params.push(`%${keyword}%`)
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const [rows] = await pool.query(`SELECT id FROM user_cards ${where}`, params)
+  res.json({ code: 200, data: rows.map(r => r.id) })
 })
 
 router.delete('/:id', authMiddleware, async (req, res) => {
