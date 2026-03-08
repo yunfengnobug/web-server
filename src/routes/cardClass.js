@@ -52,11 +52,9 @@ router.get('/', authMiddleware, async (req, res) => {
 
   const [rows] = await pool.query(
     `SELECT cl.*,
-       uc.name AS bound_user_category_name,
        (SELECT COUNT(*) FROM card_keys ck WHERE ck.class_id = cl.id AND ck.status != 'deleted') AS total_keys,
        (SELECT COUNT(*) FROM card_keys ck WHERE ck.class_id = cl.id AND ck.status != 'deleted' AND ck.is_sold = 0) AS remaining_keys
      FROM card_classes cl
-     LEFT JOIN user_card_categories uc ON cl.bound_user_category_id = uc.id
      WHERE cl.category_id = ?
      ORDER BY cl.created_at DESC
      LIMIT ${pageSize} OFFSET ${offset}`,
@@ -83,62 +81,6 @@ router.get('/:id', authMiddleware, async (req, res) => {
     return res.json({ code: 404, message: '卡类不存在' })
   }
   res.json({ code: 200, data: rows[0] })
-})
-
-router.put('/:id', authMiddleware, async (req, res) => {
-  const { type, max_count, duration, duration_unit } = req.body
-  if (!type || !['count', 'time'].includes(type)) {
-    return res.json({ code: 400, message: '请选择卡类型' })
-  }
-  if (type === 'count' && (max_count === undefined || max_count === null)) {
-    return res.json({ code: 400, message: '次卡必须设置最大次数' })
-  }
-  if (type === 'time') {
-    if (!duration || !duration_unit) {
-      return res.json({ code: 400, message: '时效卡必须设置时长和时长单位' })
-    }
-    if (!['hour', 'day', 'month', 'year'].includes(duration_unit)) {
-      return res.json({ code: 400, message: '时长单位不合法' })
-    }
-  }
-
-  const pool = getPool()
-  await pool.execute(
-    'UPDATE card_classes SET type = ?, max_count = ?, duration = ?, duration_unit = ? WHERE id = ?',
-    [
-      type,
-      type === 'count' ? max_count : null,
-      type === 'time' ? duration : null,
-      type === 'time' ? duration_unit : null,
-      req.params.id,
-    ],
-  )
-  res.json({ code: 200, message: '更新成功' })
-})
-
-router.put('/:id/bind-user-category', authMiddleware, async (req, res) => {
-  const { userCategoryId } = req.body
-  if (!userCategoryId) {
-    return res.json({ code: 400, message: '请选择用户卡密分类' })
-  }
-
-  const pool = getPool()
-  const [[cat]] = await pool.execute('SELECT id FROM user_card_categories WHERE id = ?', [userCategoryId])
-  if (!cat) {
-    return res.json({ code: 404, message: '用户卡密分类不存在' })
-  }
-
-  await pool.execute('UPDATE card_classes SET bound_user_category_id = ? WHERE id = ?', [
-    userCategoryId,
-    req.params.id,
-  ])
-  res.json({ code: 200, message: '绑定成功' })
-})
-
-router.put('/:id/unbind-user-category', authMiddleware, async (req, res) => {
-  const pool = getPool()
-  await pool.execute('UPDATE card_classes SET bound_user_category_id = NULL WHERE id = ?', [req.params.id])
-  res.json({ code: 200, message: '解绑成功' })
 })
 
 router.delete('/:id', authMiddleware, async (req, res) => {

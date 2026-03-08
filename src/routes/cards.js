@@ -38,8 +38,9 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 
   const [rows] = await pool.query(
-    `SELECT cc.*
+    `SELECT cc.*, uc.name AS bound_user_category_name
      FROM card_categories cc
+     LEFT JOIN user_card_categories uc ON cc.bound_user_category_id = uc.id
      ${where}
      ORDER BY cc.created_at DESC
      LIMIT ${pageSize} OFFSET ${offset}`,
@@ -75,6 +76,31 @@ router.put('/:id', authMiddleware, async (req, res) => {
     req.params.id,
   ])
   res.json({ code: 200, message: '更新成功' })
+})
+
+router.put('/:id/bind-user-category', authMiddleware, async (req, res) => {
+  const { userCategoryId } = req.body
+  if (!userCategoryId) {
+    return res.json({ code: 400, message: '请选择用户卡密分类' })
+  }
+
+  const pool = getPool()
+  const [[cat]] = await pool.execute('SELECT id FROM user_card_categories WHERE id = ?', [userCategoryId])
+  if (!cat) {
+    return res.json({ code: 404, message: '用户卡密分类不存在' })
+  }
+
+  await pool.execute('UPDATE card_categories SET bound_user_category_id = ? WHERE id = ?', [
+    userCategoryId,
+    req.params.id,
+  ])
+  res.json({ code: 200, message: '绑定成功' })
+})
+
+router.put('/:id/unbind-user-category', authMiddleware, async (req, res) => {
+  const pool = getPool()
+  await pool.execute('UPDATE card_categories SET bound_user_category_id = NULL WHERE id = ?', [req.params.id])
+  res.json({ code: 200, message: '解绑成功' })
 })
 
 router.delete('/:id', authMiddleware, async (req, res) => {

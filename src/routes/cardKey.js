@@ -439,7 +439,7 @@ router.post('/query-content', async (req, res) => {
   let rows
   if (appCode) {
     ;[rows] = await pool.execute(
-      `SELECT ck.*, cl.bound_user_category_id FROM card_keys ck
+      `SELECT ck.*, cat.bound_user_category_id FROM card_keys ck
        JOIN card_classes cl ON ck.class_id = cl.id
        JOIN card_categories cat ON cl.category_id = cat.id
        WHERE ck.key_code = ? AND cat.app_code = ?`,
@@ -447,7 +447,7 @@ router.post('/query-content', async (req, res) => {
     )
   } else {
     ;[rows] = await pool.execute(
-      `SELECT ck.*, cl.bound_user_category_id FROM card_keys ck
+      `SELECT ck.*, cat.bound_user_category_id FROM card_keys ck
        LEFT JOIN card_classes cl ON ck.class_id = cl.id
        LEFT JOIN card_categories cat ON cl.category_id = cat.id
        WHERE ck.key_code = ?`,
