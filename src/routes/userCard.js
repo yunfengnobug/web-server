@@ -5,7 +5,7 @@ const authMiddleware = require('../middleware/auth')
 const router = express.Router()
 
 router.post('/import', authMiddleware, async (req, res) => {
-  const { categoryId, items } = req.body
+  const { categoryId, items, priority } = req.body
   if (!categoryId || !items || !Array.isArray(items) || items.length === 0) {
     return res.json({ code: 400, message: '参数不合法' })
   }
@@ -33,8 +33,8 @@ router.post('/import', authMiddleware, async (req, res) => {
       )
       if (existing.length === 0) {
         await conn.execute(
-          'INSERT INTO user_cards (category_id, content) VALUES (?, ?)',
-          [categoryId, content],
+          'INSERT INTO user_cards (category_id, content, priority) VALUES (?, ?, ?)',
+          [categoryId, content, priority ? 1 : 0],
         )
         inserted++
       }
@@ -79,7 +79,7 @@ router.get('/', authMiddleware, async (req, res) => {
   const [rows] = await pool.query(
     `SELECT uc.*, ck.key_code AS assigned_key_code
      FROM user_cards uc
-     LEFT JOIN card_keys ck ON uc.assigned_to_key_id = ck.id
+     LEFT JOIN card_keys ck ON uc.assigned_to_key_id = ck.id AND uc.is_assigned = 1
      ${where}
      ORDER BY uc.created_at DESC
      LIMIT ${pageSize} OFFSET ${offset}`,
@@ -116,6 +116,43 @@ router.get('/all-ids', authMiddleware, async (req, res) => {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const [rows] = await pool.query(`SELECT id FROM user_cards ${where}`, params)
   res.json({ code: 200, data: rows.map(r => r.id) })
+})
+
+router.put('/:id/unassign', authMiddleware, async (req, res) => {
+  const pool = getPool()
+  const [rows] = await pool.execute(
+    'SELECT id, is_assigned, assigned_to_key_id FROM user_cards WHERE id = ?',
+    [req.params.id],
+  )
+  if (rows.length === 0) {
+    return res.json({ code: 404, message: '卡密不存在' })
+  }
+  if (!rows[0].is_assigned) {
+    return res.json({ code: 400, message: '该卡密未分配' })
+  }
+
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    await conn.execute(
+      'UPDATE user_cards SET is_assigned = 0, assigned_at = NULL WHERE id = ?',
+      [req.params.id],
+    )
+    if (rows[0].assigned_to_key_id) {
+      await conn.execute(
+        "UPDATE card_keys SET bound_user_card_id = NULL, status = 'banned' WHERE id = ?",
+        [rows[0].assigned_to_key_id],
+      )
+    }
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
+  }
+
+  res.json({ code: 200, message: '已取消分配，系统卡密已封禁' })
 })
 
 router.delete('/:id', authMiddleware, async (req, res) => {

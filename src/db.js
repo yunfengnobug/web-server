@@ -139,6 +139,7 @@ async function initDb() {
     "ALTER TABLE card_classes ADD COLUMN bound_user_category_id INT DEFAULT NULL",
     "UPDATE card_classes cl JOIN card_categories cc ON cl.category_id = cc.id SET cl.bound_user_category_id = cc.bound_user_category_id WHERE cc.bound_user_category_id IS NOT NULL",
     "UPDATE card_categories cc SET cc.bound_user_category_id = (SELECT cl.bound_user_category_id FROM card_classes cl WHERE cl.category_id = cc.id AND cl.bound_user_category_id IS NOT NULL LIMIT 1) WHERE cc.bound_user_category_id IS NULL AND EXISTS (SELECT 1 FROM card_classes cl WHERE cl.category_id = cc.id AND cl.bound_user_category_id IS NOT NULL)",
+    "ALTER TABLE user_cards ADD COLUMN priority TINYINT(1) DEFAULT 0",
   ];
 
   for (const sql of migrations) {

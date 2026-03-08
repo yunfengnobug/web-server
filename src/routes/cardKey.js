@@ -427,14 +427,19 @@ async function verifyTimeCard(pool, card) {
   return { code: 200, valid: true, message: '验证成功', data: { expireAt: card.expire_at } }
 }
 
-// ========== Public query content ==========
-router.post('/query-content', async (req, res) => {
-  const { keyCode, appCode } = req.body
-  if (!keyCode) {
-    return res.json({ code: 400, message: '卡密不能为空' })
-  }
+function detectContentType(content) {
+  try {
+    const parsed = JSON.parse(content)
+    if (typeof parsed === 'object' && parsed !== null) return 'json'
+  } catch {}
+  return 'text'
+}
 
-  const pool = getPool()
+// ========== Query content core logic ==========
+async function queryContentByKey(pool, keyCode, appCode) {
+  if (!keyCode) {
+    return { code: 400, message: '卡密不能为空' }
+  }
 
   let rows
   if (appCode) {
@@ -456,23 +461,23 @@ router.post('/query-content', async (req, res) => {
   }
 
   if (rows.length === 0) {
-    return res.json({ code: 400, message: '卡密不存在' })
+    return { code: 400, message: '卡密不存在' }
   }
 
   const card = rows[0]
   if (card.status === 'banned') {
-    return res.json({ code: 400, message: '卡密已被封禁' })
+    return { code: 400, message: '卡密已被封禁' }
   }
   if (card.status === 'used') {
     if (!card.bound_user_card_id) {
-      return res.json({ code: 400, message: '卡密已使用' })
+      return { code: 400, message: '卡密已使用' }
     }
   }
   if (card.status === 'expired') {
-    return res.json({ code: 400, message: '卡密已过期' })
+    return { code: 400, message: '卡密已过期' }
   }
   if (card.type !== 'count') {
-    return res.json({ code: 400, message: '仅次卡支持查询内容' })
+    return { code: 400, message: '仅次卡支持查询内容' }
   }
 
   if (card.bound_user_card_id) {
@@ -483,9 +488,9 @@ router.post('/query-content', async (req, res) => {
       [card.bound_user_card_id],
     )
     if (uc.length === 0) {
-      return res.json({ code: 400, message: '绑定的用户卡密已被移除' })
+      return { code: 400, message: '绑定的用户卡密已被移除' }
     }
-    return res.json({ code: 200, message: '查询成功', data: { content: uc[0].content, contentType: 'text', contentHint: uc[0].content_hint || '' } })
+    return { code: 200, message: '查询成功', data: { content: uc[0].content, contentType: detectContentType(uc[0].content), contentHint: uc[0].content_hint || '' } }
   }
 
   if (!card.bound_user_category_id) {
@@ -494,9 +499,9 @@ router.post('/query-content', async (req, res) => {
       [card.id],
     )
     if (legacy.length > 0) {
-      return res.json({ code: 200, message: '查询成功', data: { content: legacy[0].content, contentType: legacy[0].content_type } })
+      return { code: 200, message: '查询成功', data: { content: legacy[0].content, contentType: legacy[0].content_type } }
     }
-    return res.json({ code: 400, message: '该分类未绑定用户卡密分类' })
+    return { code: 400, message: '该分类未绑定用户卡密分类' }
   }
 
   const conn = await pool.getConnection()
@@ -504,15 +509,24 @@ router.post('/query-content', async (req, res) => {
     await conn.beginTransaction()
 
     const [available] = await conn.execute(
-      'SELECT id, content FROM user_cards WHERE category_id = ? AND is_assigned = 0 LIMIT 1 FOR UPDATE',
+      'SELECT id, content, assigned_to_key_id FROM user_cards WHERE category_id = ? AND is_assigned = 0 ORDER BY priority DESC, id ASC LIMIT 1 FOR UPDATE',
       [card.bound_user_category_id],
     )
     if (available.length === 0) {
       await conn.rollback()
-      return res.json({ code: 400, message: '库存不足，该分类下已无可用的用户卡密' })
+      return { code: 400, message: '库存不足，该分类下已无可用的用户卡密' }
     }
 
     const userCard = available[0]
+    let bannedOldKey = false
+    if (userCard.assigned_to_key_id && userCard.assigned_to_key_id !== card.id) {
+      const [banResult] = await conn.execute(
+        "UPDATE card_keys SET status = 'banned' WHERE id = ? AND status = 'active'",
+        [userCard.assigned_to_key_id],
+      )
+      bannedOldKey = banResult.affectedRows > 0
+    }
+
     await conn.execute(
       'UPDATE user_cards SET is_assigned = 1, assigned_to_key_id = ?, assigned_at = NOW() WHERE id = ?',
       [card.id, userCard.id],
@@ -525,13 +539,51 @@ router.post('/query-content', async (req, res) => {
 
     const [hintRow] = await pool.execute('SELECT content_hint FROM user_card_categories WHERE id = ?', [card.bound_user_category_id])
     const contentHint = hintRow.length > 0 ? (hintRow[0].content_hint || '') : ''
-    return res.json({ code: 200, message: '查询成功', data: { content: userCard.content, contentType: 'text', contentHint } })
+    const result = { code: 200, message: '查询成功', data: { content: userCard.content, contentType: detectContentType(userCard.content), contentHint } }
+    if (bannedOldKey) {
+      result.data.warning = '该内容为重新分配，原绑定卡密已被自动封禁'
+    }
+    return result
   } catch (err) {
     await conn.rollback()
     throw err
   } finally {
     conn.release()
   }
+}
+
+// ========== Public query content ==========
+router.post('/query-content', async (req, res) => {
+  const { keyCode, appCode } = req.body
+  try {
+    const result = await queryContentByKey(getPool(), keyCode, appCode)
+    res.json(result)
+  } catch {
+    res.json({ code: 500, message: '服务器错误' })
+  }
+})
+
+// ========== Public batch query content ==========
+router.post('/batch-query-content', async (req, res) => {
+  const { keyCodes, appCode } = req.body
+  if (!Array.isArray(keyCodes) || keyCodes.length === 0) {
+    return res.json({ code: 400, message: '参数不合法' })
+  }
+  if (keyCodes.length > 50) {
+    return res.json({ code: 400, message: '单次最多查询 50 条' })
+  }
+
+  const pool = getPool()
+  const results = []
+  for (const keyCode of keyCodes) {
+    try {
+      const result = await queryContentByKey(pool, keyCode, appCode)
+      results.push({ keyCode, ...result })
+    } catch {
+      results.push({ keyCode, code: 500, message: '查询失败' })
+    }
+  }
+  res.json({ code: 200, data: { results } })
 })
 
 module.exports = router
