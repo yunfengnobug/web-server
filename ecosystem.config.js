@@ -9,14 +9,12 @@ module.exports = {
       watch_delay: 1000,
       ignore_watch: ["node_modules", "logs"],
       env: {
-        NODE_ENV: "development",
-        PORT: 3000,
-        mode: "development",
-      },
-      env_production: {
         NODE_ENV: "production",
         PORT: 3000,
-        mode: "production",
+      },
+      env_development: {
+        NODE_ENV: "development",
+        PORT: 3000,
       },
     },
   ],
