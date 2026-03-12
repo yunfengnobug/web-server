@@ -1,6 +1,7 @@
 const express = require("express");
 const https = require("https");
 const { getPool } = require("../db");
+const logger = require("../logger");
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ async function recordVerify(pool, { cardId, cardKeyCode, sessionToken, success, 
       [cardId, cardKeyCode, sessionToken || "", success ? 1 : 0, message || ""],
     );
   } catch (err) {
-    console.error("[VerifyRecord] insert failed:", err);
+    logger.error("[VerifyRecord] insert failed:", err);
   }
 }
 
@@ -124,7 +125,7 @@ router.post("/upgrade", async (req, res) => {
           );
         }
       } catch (dbErr) {
-        console.error("[Upgrade] post-process failed:", dbErr);
+        logger.error("[Upgrade] post-process failed:", dbErr);
       }
 
       await recordVerify(pool, { cardId: card.category_id || 0, cardKeyCode: cardKey, sessionToken, success: true, message: "升级成功" });
@@ -138,7 +139,7 @@ router.post("/upgrade", async (req, res) => {
       data: parsedBody,
     });
   } catch (err) {
-    console.error("[Cursor Checkout] error:", err);
+    logger.error("[Cursor Checkout] error:", err);
     await recordVerify(pool, { cardId: card.category_id || 0, cardKeyCode: cardKey, sessionToken, success: false, message: err.message });
     return res.json({ code: 500, message: "调用 Cursor API 失败", error: err.message });
   }

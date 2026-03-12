@@ -125,6 +125,51 @@ async function initDb() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS request_logs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      method VARCHAR(10) NOT NULL,
+      path VARCHAR(255) NOT NULL,
+      status_code INT NOT NULL,
+      response_time_ms INT DEFAULT 0,
+      ip VARCHAR(45) DEFAULT '',
+      user_agent VARCHAR(500) DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_created_at (created_at),
+      INDEX idx_path (path),
+      INDEX idx_ip (ip)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS security_events (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      type VARCHAR(50) NOT NULL,
+      level ENUM('low','medium','high','critical') DEFAULT 'medium',
+      ip VARCHAR(45) DEFAULT '',
+      path VARCHAR(255) DEFAULT '',
+      detail VARCHAR(1000) DEFAULT '',
+      blocked TINYINT(1) DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_created_at (created_at),
+      INDEX idx_ip (ip),
+      INDEX idx_type (type)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS client_events (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      type ENUM('error','performance','environment') NOT NULL,
+      payload JSON NOT NULL,
+      ip VARCHAR(45) DEFAULT '',
+      user_agent VARCHAR(500) DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_created_at (created_at),
+      INDEX idx_type (type)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
   const migrations = [
     "ALTER TABLE card_keys ADD COLUMN remark VARCHAR(255) DEFAULT ''",
     "ALTER TABLE card_keys MODIFY COLUMN status ENUM('active', 'banned', 'used', 'expired', 'deleted') DEFAULT 'active'",
@@ -146,7 +191,8 @@ async function initDb() {
     try { await pool.execute(sql); } catch { /* already applied */ }
   }
 
-  console.log("Database initialized");
+  const logger = require('./logger');
+  logger.info("Database initialized");
 }
 
 function getPool() {
