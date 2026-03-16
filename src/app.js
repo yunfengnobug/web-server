@@ -31,6 +31,7 @@ const statsRoutes = require("./routes/stats");
 const monitorRoutes = require("./routes/monitor");
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
 app.use(helmetMiddleware);
