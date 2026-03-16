@@ -1,6 +1,7 @@
 const helmet = require('helmet')
 const rateLimit = require('express-rate-limit')
 const logger = require('../logger')
+const { collectParams } = require('./requestLogger')
 
 const helmetMiddleware = helmet({
   contentSecurityPolicy: false,
@@ -114,6 +115,7 @@ function attackDetection(req, res, next) {
   const url = decodeURIComponent(req.originalUrl || req.url || '')
   const ua = req.headers['user-agent'] || ''
   const now = Date.now()
+  const params = collectParams(req)
 
   // Frequency tracking
   let data = ipRequestCounts.get(ip)
@@ -125,27 +127,27 @@ function attackDetection(req, res, next) {
 
   if (data.count > BLOCK_THRESHOLD && !blockedIps.has(ip)) {
     blockedIps.set(ip, now + BLOCK_DURATION_MS)
-    writeSecurityEvent({ type: 'ip_blocked', level: 'critical', ip, path: url, detail: `1分钟内请求 ${data.count} 次，自动封禁 10 分钟`, blocked: 1 })
+    writeSecurityEvent({ type: 'ip_blocked', level: 'critical', ip, path: url, detail: `1分钟内请求 ${data.count} 次，自动封禁 10 分钟`, blocked: 1, params })
     return res.status(403).json({ code: 403, message: '您的 IP 已被临时封禁' })
   }
 
   // Pattern detection
   if (TRAVERSAL_RE.test(url)) {
-    writeSecurityEvent({ type: 'path_traversal', level: 'high', ip, path: url, detail: `路径遍历攻击: ${url.substring(0, 200)}`, blocked: 0 })
+    writeSecurityEvent({ type: 'path_traversal', level: 'high', ip, path: url, detail: `路径遍历攻击: ${url.substring(0, 200)}`, blocked: 0, params })
   }
 
   if (SQLI_RE.test(url)) {
-    writeSecurityEvent({ type: 'sql_injection', level: 'critical', ip, path: url, detail: `SQL注入探测: ${url.substring(0, 200)}`, blocked: 1 })
+    writeSecurityEvent({ type: 'sql_injection', level: 'critical', ip, path: url, detail: `SQL注入探测: ${url.substring(0, 200)}`, blocked: 1, params })
     return res.status(403).json({ code: 403, message: '非法请求' })
   }
 
   if (XSS_RE.test(url)) {
-    writeSecurityEvent({ type: 'xss_probe', level: 'high', ip, path: url, detail: `XSS探测: ${url.substring(0, 200)}`, blocked: 1 })
+    writeSecurityEvent({ type: 'xss_probe', level: 'high', ip, path: url, detail: `XSS探测: ${url.substring(0, 200)}`, blocked: 1, params })
     return res.status(403).json({ code: 403, message: '非法请求' })
   }
 
   if (SCANNER_UA_RE.test(ua)) {
-    writeSecurityEvent({ type: 'scanner', level: 'medium', ip, path: url, detail: `扫描器UA: ${ua.substring(0, 200)}`, blocked: 1 })
+    writeSecurityEvent({ type: 'scanner', level: 'medium', ip, path: url, detail: `扫描器UA: ${ua.substring(0, 200)}`, blocked: 1, params })
     return res.status(403).json({ code: 403, message: '非法请求' })
   }
 

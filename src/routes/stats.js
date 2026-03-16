@@ -202,7 +202,7 @@ router.get('/logs', async (req, res) => {
     const [[{ total }]] = await pool.execute(`SELECT COUNT(*) AS total FROM request_logs ${where}`, params)
     const offset = (page - 1) * pageSize
     const [rows] = await pool.execute(
-      `SELECT id,method,path,status_code,response_time_ms,ip,user_agent,created_at FROM request_logs ${where} ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`, params)
+      `SELECT id,method,path,status_code,response_time_ms,ip,user_agent,params,created_at FROM request_logs ${where} ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`, params)
 
     res.json({ code: 200, data: { total: Number(total), page, pageSize, list: rows } })
   } catch {

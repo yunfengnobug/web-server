@@ -81,7 +81,7 @@ initDb()
       const pool = getPool();
       if (!pool) return;
       await pool.execute(
-        "INSERT INTO security_events (type, level, ip, path, detail, blocked) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO security_events (type, level, ip, path, detail, blocked, params) VALUES (?, ?, ?, ?, ?, ?, ?)",
         [
           event.type,
           event.level,
@@ -89,6 +89,7 @@ initDb()
           (event.path || "").substring(0, 255),
           (event.detail || "").substring(0, 1000),
           event.blocked ? 1 : 0,
+          (event.params || "").substring(0, 2000),
         ],
       );
     });
