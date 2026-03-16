@@ -19,6 +19,7 @@ async function initDb() {
   pool = mysql.createPool({
     ...config,
     database: process.env.DB_NAME,
+    timezone: '+08:00',
     waitForConnections: true,
     connectionLimit: 10,
   });

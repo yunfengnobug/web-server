@@ -10,10 +10,17 @@ function parseDays(query) {
   return Math.min(Math.max(parseInt(query.days) || 7, 1), 90)
 }
 
+function localDateStr(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function fillDateRange(rows, days) {
   const dateMap = new Map(
     rows.map(r => [
-      r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date),
+      r.date instanceof Date ? localDateStr(r.date) : String(r.date),
       Number(r.count),
     ]),
   )
@@ -22,7 +29,7 @@ function fillDateRange(rows, days) {
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date()
     d.setDate(d.getDate() - i)
-    const key = d.toISOString().slice(0, 10)
+    const key = localDateStr(d)
     dates.push(key)
     counts.push(dateMap.get(key) || 0)
   }
@@ -344,13 +351,13 @@ router.get('/client/performance', async (req, res) => {
       [days],
     )
     const dateMap = new Map(rows.map(r => {
-      const key = r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date)
+      const key = r.date instanceof Date ? localDateStr(r.date) : String(r.date)
       return [key, { load: Number(r.avg_load) || 0, dom: Number(r.avg_dom) || 0 }]
     }))
     const dates = []; const loadTimes = []; const domTimes = []
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i)
-      const key = d.toISOString().slice(0, 10)
+      const key = localDateStr(d)
       dates.push(key)
       const v = dateMap.get(key)
       loadTimes.push(v?.load || 0)
