@@ -159,6 +159,16 @@ async function initDb() {
   `);
 
   await pool.execute(`
+    CREATE TABLE IF NOT EXISTS banned_ips (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      ip VARCHAR(45) NOT NULL,
+      reason VARCHAR(500) DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_ip (ip)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS client_events (
       id INT AUTO_INCREMENT PRIMARY KEY,
       type ENUM('error','performance','environment') NOT NULL,

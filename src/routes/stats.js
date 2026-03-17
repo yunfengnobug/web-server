@@ -2,7 +2,7 @@ const express = require('express')
 const router = express.Router()
 const { getPool } = require('../db')
 const authMiddleware = require('../middleware/auth')
-const { getBlockedIps, unblockIp } = require('../middleware/security')
+const { getBlockedIps, unblockIp, banIp, unbanIp, getBannedIpList } = require('../middleware/security')
 const logger = require('../logger')
 
 router.use(authMiddleware)
@@ -300,6 +300,41 @@ router.post('/security/unblock-ip', (req, res) => {
   if (!ip) return res.status(400).json({ code: 400, message: '缺少 ip 参数' })
   unblockIp(ip)
   res.json({ code: 200, message: '解封成功' })
+})
+
+router.get('/security/banned-ips', async (_req, res) => {
+  try {
+    const list = await getBannedIpList()
+    res.json({ code: 200, data: list })
+  } catch (err) {
+    logger.error('获取封禁列表失败:', err)
+    res.status(500).json({ code: 500, message: '获取封禁列表失败' })
+  }
+})
+
+router.post('/security/ban-ip', async (req, res) => {
+  const { ip, reason } = req.body
+  if (!ip) return res.status(400).json({ code: 400, message: '缺少 ip 参数' })
+  try {
+    const added = await banIp(ip, reason)
+    if (!added) return res.json({ code: 200, message: '该 IP 已在封禁列表中' })
+    res.json({ code: 200, message: '封禁成功' })
+  } catch (err) {
+    logger.error('封禁 IP 失败:', err)
+    res.status(500).json({ code: 500, message: '封禁失败' })
+  }
+})
+
+router.post('/security/unban-ip', async (req, res) => {
+  const { ip } = req.body
+  if (!ip) return res.status(400).json({ code: 400, message: '缺少 ip 参数' })
+  try {
+    await unbanIp(ip)
+    res.json({ code: 200, message: '解封成功' })
+  } catch (err) {
+    logger.error('解封 IP 失败:', err)
+    res.status(500).json({ code: 500, message: '解封失败' })
+  }
 })
 
 // ==================== Client Monitor ====================

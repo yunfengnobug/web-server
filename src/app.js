@@ -16,6 +16,7 @@ const {
   ipBlockCheck,
   attackDetection,
   setSecurityEventWriter,
+  initBannedIps,
 } = require("./middleware/security");
 const { morganMiddleware, requestStatsMiddleware } = require("./middleware/requestLogger");
 
@@ -76,7 +77,9 @@ app.use((err, _req, res, _next) => {
 });
 
 initDb()
-  .then(() => {
+  .then(async () => {
+    await initBannedIps(getPool());
+
     setSecurityEventWriter(async (event) => {
       const pool = getPool();
       if (!pool) return;

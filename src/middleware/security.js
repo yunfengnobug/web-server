@@ -50,6 +50,45 @@ const reportLimiter = rateLimit({
   message: rateLimitMsg,
 })
 
+// --- Persistent IP bans ---
+
+const bannedIps = new Set()
+let _pool = null
+
+async function initBannedIps(pool) {
+  _pool = pool
+  const [rows] = await pool.execute('SELECT ip FROM banned_ips')
+  for (const row of rows) bannedIps.add(row.ip)
+  logger.info(`Loaded ${bannedIps.size} banned IPs`)
+}
+
+async function banIp(ip, reason = '') {
+  if (bannedIps.has(ip)) return false
+  bannedIps.add(ip)
+  if (_pool) {
+    await _pool.execute(
+      'INSERT IGNORE INTO banned_ips (ip, reason) VALUES (?, ?)',
+      [ip, (reason || '').substring(0, 500)],
+    )
+  }
+  writeSecurityEvent({ type: 'ip_banned', level: 'high', ip, path: '', detail: `手动封禁 IP: ${ip}，原因: ${reason || '无'}`, blocked: 1 })
+  return true
+}
+
+async function unbanIp(ip) {
+  bannedIps.delete(ip)
+  if (_pool) {
+    await _pool.execute('DELETE FROM banned_ips WHERE ip = ?', [ip])
+  }
+  writeSecurityEvent({ type: 'ip_unbanned', level: 'low', ip, path: '', detail: `解除手动封禁 IP: ${ip}`, blocked: 0 })
+}
+
+async function getBannedIpList() {
+  if (!_pool) return []
+  const [rows] = await _pool.execute('SELECT id, ip, reason, created_at FROM banned_ips ORDER BY created_at DESC')
+  return rows
+}
+
 // --- Attack detection ---
 
 const ipRequestCounts = new Map()
@@ -104,6 +143,9 @@ function unblockIp(ip) {
 
 function ipBlockCheck(req, res, next) {
   const ip = req.ip || req.socket?.remoteAddress || ''
+  if (bannedIps.has(ip)) {
+    return res.status(403).json({ code: 403, message: '您的 IP 已被封禁' })
+  }
   if (blockedIps.has(ip) && Date.now() < blockedIps.get(ip)) {
     return res.status(403).json({ code: 403, message: '您的 IP 已被临时封禁' })
   }
@@ -169,4 +211,8 @@ module.exports = {
   setSecurityEventWriter,
   getBlockedIps,
   unblockIp,
+  initBannedIps,
+  banIp,
+  unbanIp,
+  getBannedIpList,
 }
