@@ -60,6 +60,8 @@ router.get('/', authMiddleware, async (req, res) => {
   const conditions = []
   const params = []
 
+  conditions.push('uc.deleted_at IS NULL')
+
   if (categoryId) {
     conditions.push('uc.category_id = ?')
     params.push(categoryId)
@@ -74,7 +76,7 @@ router.get('/', authMiddleware, async (req, res) => {
     params.push(`%${keyword}%`)
   }
 
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const where = `WHERE ${conditions.join(' AND ')}`
 
   const [rows] = await pool.query(
     `SELECT uc.*, ck.key_code AS assigned_key_code
@@ -96,7 +98,7 @@ router.get('/', authMiddleware, async (req, res) => {
 router.get('/all-ids', authMiddleware, async (req, res) => {
   const { categoryId, assignStatus, keyword } = req.query
   const pool = getPool()
-  const conditions = []
+  const conditions = ['deleted_at IS NULL']
   const params = []
 
   if (categoryId) {
@@ -113,7 +115,7 @@ router.get('/all-ids', authMiddleware, async (req, res) => {
     params.push(`%${keyword}%`)
   }
 
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const where = `WHERE ${conditions.join(' AND ')}`
   const [rows] = await pool.query(`SELECT id FROM user_cards ${where}`, params)
   res.json({ code: 200, data: rows.map(r => r.id) })
 })
@@ -157,15 +159,31 @@ router.put('/:id/unassign', authMiddleware, async (req, res) => {
 
 router.delete('/:id', authMiddleware, async (req, res) => {
   const pool = getPool()
-  const [rows] = await pool.execute('SELECT is_assigned FROM user_cards WHERE id = ?', [req.params.id])
+  const [rows] = await pool.execute(
+    'SELECT id, is_assigned, assigned_to_key_id FROM user_cards WHERE id = ? AND deleted_at IS NULL',
+    [req.params.id],
+  )
   if (rows.length === 0) {
     return res.json({ code: 404, message: '卡密不存在' })
   }
-  if (rows[0].is_assigned) {
-    return res.json({ code: 400, message: '该卡密已分配，无法删除' })
-  }
 
-  await pool.execute('DELETE FROM user_cards WHERE id = ?', [req.params.id])
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    if (rows[0].is_assigned && rows[0].assigned_to_key_id) {
+      await conn.execute(
+        "UPDATE card_keys SET bound_user_card_id = NULL, status = 'banned' WHERE id = ?",
+        [rows[0].assigned_to_key_id],
+      )
+    }
+    await conn.execute('UPDATE user_cards SET deleted_at = NOW() WHERE id = ?', [req.params.id])
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
+  }
   res.json({ code: 200, message: '删除成功' })
 })
 
@@ -178,16 +196,104 @@ router.post('/batch-delete', authMiddleware, async (req, res) => {
   const pool = getPool()
   const placeholders = ids.map(() => '?').join(',')
 
-  const [assigned] = await pool.query(
-    `SELECT id FROM user_cards WHERE id IN (${placeholders}) AND is_assigned = 1`,
-    ids,
-  )
-  if (assigned.length > 0) {
-    return res.json({ code: 400, message: `${assigned.length} 条卡密已分配，无法删除` })
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [assignedRows] = await conn.query(
+      `SELECT assigned_to_key_id FROM user_cards WHERE id IN (${placeholders}) AND is_assigned = 1 AND assigned_to_key_id IS NOT NULL AND deleted_at IS NULL`,
+      ids,
+    )
+    if (assignedRows.length > 0) {
+      const keyIds = assignedRows.map(r => r.assigned_to_key_id)
+      const keyPh = keyIds.map(() => '?').join(',')
+      await conn.query(
+        `UPDATE card_keys SET bound_user_card_id = NULL, status = 'banned' WHERE id IN (${keyPh})`,
+        keyIds,
+      )
+    }
+    await conn.query(
+      `UPDATE user_cards SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+      ids,
+    )
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
+  }
+  res.json({ code: 200, message: `已删除 ${ids.length} 条` })
+})
+
+router.post('/export', authMiddleware, async (req, res) => {
+  const { ids } = req.body
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return res.json({ code: 400, message: '参数不合法' })
   }
 
-  await pool.query(`DELETE FROM user_cards WHERE id IN (${placeholders}) AND is_assigned = 0`, ids)
-  res.json({ code: 200, message: `已删除 ${ids.length} 条` })
+  const pool = getPool()
+  const placeholders = ids.map(() => '?').join(',')
+  const [rows] = await pool.query(
+    `SELECT content FROM user_cards WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+    ids,
+  )
+  res.json({ code: 200, data: rows.map(r => r.content) })
+})
+
+router.get('/trash', authMiddleware, async (req, res) => {
+  const page = parseInt(req.query.page) || 1
+  const pageSize = parseInt(req.query.pageSize) || 20
+  const offset = (page - 1) * pageSize
+  const { categoryId } = req.query
+  const pool = getPool()
+
+  const conditions = ['deleted_at IS NOT NULL']
+  const params = []
+  if (categoryId) {
+    conditions.push('category_id = ?')
+    params.push(categoryId)
+  }
+
+  const where = `WHERE ${conditions.join(' AND ')}`
+  const [rows] = await pool.query(
+    `SELECT id, content, deleted_at FROM user_cards ${where} ORDER BY deleted_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
+    params,
+  )
+  const [[{ total }]] = await pool.query(
+    `SELECT COUNT(*) as total FROM user_cards ${where}`,
+    params,
+  )
+  res.json({ code: 200, data: { list: rows, total, page, pageSize } })
+})
+
+router.post('/batch-restore', authMiddleware, async (req, res) => {
+  const { ids } = req.body
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return res.json({ code: 400, message: '参数不合法' })
+  }
+
+  const pool = getPool()
+  const placeholders = ids.map(() => '?').join(',')
+  await pool.query(
+    `UPDATE user_cards SET deleted_at = NULL WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`,
+    ids,
+  )
+  res.json({ code: 200, message: `已还原 ${ids.length} 条` })
+})
+
+router.post('/batch-permanent-delete', authMiddleware, async (req, res) => {
+  const { ids } = req.body
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return res.json({ code: 400, message: '参数不合法' })
+  }
+
+  const pool = getPool()
+  const placeholders = ids.map(() => '?').join(',')
+  await pool.query(
+    `DELETE FROM user_cards WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`,
+    ids,
+  )
+  res.json({ code: 200, message: `已彻底删除 ${ids.length} 条` })
 })
 
 module.exports = router

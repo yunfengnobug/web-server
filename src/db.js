@@ -188,6 +188,7 @@ async function initDb() {
     "ALTER TABLE user_cards ADD COLUMN priority TINYINT(1) DEFAULT 0",
     "ALTER TABLE request_logs ADD COLUMN params TEXT DEFAULT ''",
     "ALTER TABLE security_events ADD COLUMN params TEXT DEFAULT ''",
+    "ALTER TABLE user_cards ADD COLUMN deleted_at DATETIME DEFAULT NULL",
   ];
 
   for (const sql of migrations) {
