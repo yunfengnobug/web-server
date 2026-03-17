@@ -112,7 +112,9 @@ function ipBlockCheck(req, res, next) {
 
 function attackDetection(req, res, next) {
   const ip = req.ip || req.socket?.remoteAddress || ''
-  const url = decodeURIComponent(req.originalUrl || req.url || '')
+  let url
+  try { url = decodeURIComponent(req.originalUrl || req.url || '') }
+  catch { url = req.originalUrl || req.url || '' }
   const ua = req.headers['user-agent'] || ''
   const now = Date.now()
   const params = collectParams(req)
@@ -133,7 +135,8 @@ function attackDetection(req, res, next) {
 
   // Pattern detection
   if (TRAVERSAL_RE.test(url)) {
-    writeSecurityEvent({ type: 'path_traversal', level: 'high', ip, path: url, detail: `路径遍历攻击: ${url.substring(0, 200)}`, blocked: 0, params })
+    writeSecurityEvent({ type: 'path_traversal', level: 'high', ip, path: url, detail: `路径遍历攻击: ${url.substring(0, 200)}`, blocked: 1, params })
+    return res.status(403).json({ code: 403, message: '非法请求' })
   }
 
   if (SQLI_RE.test(url)) {

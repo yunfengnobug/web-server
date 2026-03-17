@@ -186,16 +186,25 @@ async function initDb() {
     "UPDATE card_classes cl JOIN card_categories cc ON cl.category_id = cc.id SET cl.bound_user_category_id = cc.bound_user_category_id WHERE cc.bound_user_category_id IS NOT NULL",
     "UPDATE card_categories cc SET cc.bound_user_category_id = (SELECT cl.bound_user_category_id FROM card_classes cl WHERE cl.category_id = cc.id AND cl.bound_user_category_id IS NOT NULL LIMIT 1) WHERE cc.bound_user_category_id IS NULL AND EXISTS (SELECT 1 FROM card_classes cl WHERE cl.category_id = cc.id AND cl.bound_user_category_id IS NOT NULL)",
     "ALTER TABLE user_cards ADD COLUMN priority TINYINT(1) DEFAULT 0",
-    "ALTER TABLE request_logs ADD COLUMN params TEXT DEFAULT ''",
-    "ALTER TABLE security_events ADD COLUMN params TEXT DEFAULT ''",
+    "ALTER TABLE request_logs ADD COLUMN params TEXT",
+    "ALTER TABLE security_events ADD COLUMN params TEXT",
     "ALTER TABLE user_cards ADD COLUMN deleted_at DATETIME DEFAULT NULL",
   ];
 
+  const logger = require('./logger');
+
   for (const sql of migrations) {
-    try { await pool.execute(sql); } catch { /* already applied */ }
+    try {
+      await pool.execute(sql);
+    } catch (err) {
+      const ignorable = ['ER_DUP_FIELDNAME', 'ER_DUP_KEYNAME', 'ER_DUP_ENTRY'];
+      if (!ignorable.includes(err.code)) {
+        logger.error('Migration failed:', sql, err);
+        throw err;
+      }
+    }
   }
 
-  const logger = require('./logger');
   logger.info("Database initialized");
 }
 

@@ -17,7 +17,7 @@ router.post('/import', authMiddleware, async (req, res) => {
     return res.json({ code: 404, message: '分类不存在' })
   }
 
-  const unique = [...new Set(items.map((s) => s.trim()).filter(Boolean))]
+  const unique = [...new Set(items.map((s) => String(s).trim()).filter(Boolean))]
   if (unique.length === 0) {
     return res.json({ code: 400, message: '没有有效内容' })
   }
@@ -52,7 +52,7 @@ router.post('/import', authMiddleware, async (req, res) => {
 
 router.get('/', authMiddleware, async (req, res) => {
   const page = parseInt(req.query.page) || 1
-  const pageSize = parseInt(req.query.pageSize) || 15
+  const pageSize = Math.min(Math.max(parseInt(req.query.pageSize) || 15, 1), 100)
   const offset = (page - 1) * pageSize
   const { categoryId, assignStatus, keyword } = req.query
   const pool = getPool()
@@ -137,7 +137,7 @@ router.put('/:id/unassign', authMiddleware, async (req, res) => {
   try {
     await conn.beginTransaction()
     await conn.execute(
-      'UPDATE user_cards SET is_assigned = 0, assigned_at = NULL WHERE id = ?',
+      'UPDATE user_cards SET is_assigned = 0, assigned_at = NULL, assigned_to_key_id = NULL WHERE id = ?',
       [req.params.id],
     )
     if (rows[0].assigned_to_key_id) {
@@ -242,7 +242,7 @@ router.post('/export', authMiddleware, async (req, res) => {
 
 router.get('/trash', authMiddleware, async (req, res) => {
   const page = parseInt(req.query.page) || 1
-  const pageSize = parseInt(req.query.pageSize) || 20
+  const pageSize = Math.min(Math.max(parseInt(req.query.pageSize) || 20, 1), 100)
   const offset = (page - 1) * pageSize
   const { categoryId } = req.query
   const pool = getPool()

@@ -3,6 +3,7 @@ const router = express.Router()
 const { getPool } = require('../db')
 const authMiddleware = require('../middleware/auth')
 const { getBlockedIps, unblockIp } = require('../middleware/security')
+const logger = require('../logger')
 
 router.use(authMiddleware)
 
@@ -55,7 +56,8 @@ router.get('/overview', async (_req, res) => {
     const avgTime = Number(row.avg_time) || 0
     const successRate = total > 0 ? Number(((success / total) * 100).toFixed(1)) : 0
     res.json({ code: 200, data: { total, today, successRate, avgResponseTime: avgTime } })
-  } catch {
+  } catch (err) {
+    logger.error('获取概览数据失败:', err)
     res.status(500).json({ code: 500, message: '获取概览数据失败' })
   }
 })
@@ -71,7 +73,8 @@ router.get('/trend', async (req, res) => {
       [days],
     )
     res.json({ code: 200, data: fillDateRange(rows, days) })
-  } catch {
+  } catch (err) {
+    logger.error('获取趋势数据失败:', err)
     res.status(500).json({ code: 500, message: '获取趋势数据失败' })
   }
 })
@@ -87,7 +90,8 @@ router.get('/endpoints', async (req, res) => {
       [days],
     )
     res.json({ code: 200, data: { paths: rows.map(r => r.path), counts: rows.map(r => Number(r.count)) } })
-  } catch {
+  } catch (err) {
+    logger.error('获取接口统计失败:', err)
     res.status(500).json({ code: 500, message: '获取接口统计失败' })
   }
 })
@@ -108,7 +112,8 @@ router.get('/status-codes', async (req, res) => {
       [days],
     )
     res.json({ code: 200, data: rows.map(r => ({ name: r.category, value: Number(r.count) })) })
-  } catch {
+  } catch (err) {
+    logger.error('获取状态码统计失败:', err)
     res.status(500).json({ code: 500, message: '获取状态码统计失败' })
   }
 })
@@ -126,7 +131,8 @@ router.get('/ip-ranking', async (req, res) => {
       [days],
     )
     res.json({ code: 200, data: { ips: rows.map(r => r.ip), counts: rows.map(r => Number(r.count)) } })
-  } catch {
+  } catch (err) {
+    logger.error('获取 IP 排行失败:', err)
     res.status(500).json({ code: 500, message: '获取 IP 排行失败' })
   }
 })
@@ -142,7 +148,8 @@ router.get('/ip-trend', async (req, res) => {
       [days],
     )
     res.json({ code: 200, data: fillDateRange(rows, days) })
-  } catch {
+  } catch (err) {
+    logger.error('获取 IP 趋势失败:', err)
     res.status(500).json({ code: 500, message: '获取 IP 趋势失败' })
   }
 })
@@ -175,7 +182,8 @@ router.get('/ip-detail', async (req, res) => {
         daily: fillDateRange(dailyRows, days),
       },
     })
-  } catch {
+  } catch (err) {
+    logger.error('获取 IP 详情失败:', err)
     res.status(500).json({ code: 500, message: '获取 IP 详情失败' })
   }
 })
@@ -205,7 +213,8 @@ router.get('/logs', async (req, res) => {
       `SELECT id,method,path,status_code,response_time_ms,ip,user_agent,params,created_at FROM request_logs ${where} ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`, params)
 
     res.json({ code: 200, data: { total: Number(total), page, pageSize, list: rows } })
-  } catch {
+  } catch (err) {
+    logger.error('获取请求日志失败:', err)
     res.status(500).json({ code: 500, message: '获取请求日志失败' })
   }
 })
@@ -233,7 +242,8 @@ router.get('/security/overview', async (_req, res) => {
         currentBlockedIps: getBlockedIps().length,
       },
     })
-  } catch {
+  } catch (err) {
+    logger.error('获取安全概览失败:', err)
     res.status(500).json({ code: 500, message: '获取安全概览失败' })
   }
 })
@@ -258,7 +268,8 @@ router.get('/security/events', async (req, res) => {
       `SELECT * FROM security_events ${where} ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`, params)
 
     res.json({ code: 200, data: { total: Number(total), page, pageSize, list: rows } })
-  } catch {
+  } catch (err) {
+    logger.error('获取安全事件失败:', err)
     res.status(500).json({ code: 500, message: '获取安全事件失败' })
   }
 })
@@ -274,7 +285,8 @@ router.get('/security/trend', async (req, res) => {
       [days],
     )
     res.json({ code: 200, data: fillDateRange(rows, days) })
-  } catch {
+  } catch (err) {
+    logger.error('获取安全趋势失败:', err)
     res.status(500).json({ code: 500, message: '获取安全趋势失败' })
   }
 })
@@ -315,7 +327,8 @@ router.get('/client/overview', async (_req, res) => {
         avgLoadTime: Number(perf.avg_load) || 0,
       },
     })
-  } catch {
+  } catch (err) {
+    logger.error('获取客户端概览失败:', err)
     res.status(500).json({ code: 500, message: '获取客户端概览失败' })
   }
 })
@@ -332,7 +345,8 @@ router.get('/client/errors', async (req, res) => {
       `SELECT id,payload,ip,user_agent,created_at FROM client_events WHERE type='error' ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`)
 
     res.json({ code: 200, data: { total: Number(total), page, pageSize, list: rows } })
-  } catch {
+  } catch (err) {
+    logger.error('获取客户端错误失败:', err)
     res.status(500).json({ code: 500, message: '获取客户端错误失败' })
   }
 })
@@ -364,7 +378,8 @@ router.get('/client/performance', async (req, res) => {
       domTimes.push(v?.dom || 0)
     }
     res.json({ code: 200, data: { dates, loadTimes, domTimes } })
-  } catch {
+  } catch (err) {
+    logger.error('获取客户端性能失败:', err)
     res.status(500).json({ code: 500, message: '获取客户端性能失败' })
   }
 })
@@ -384,7 +399,8 @@ router.get('/client/environments', async (_req, res) => {
 
     const toArr = obj => Object.entries(obj).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
     res.json({ code: 200, data: { browsers: toArr(browsers), os: toArr(oses) } })
-  } catch {
+  } catch (err) {
+    logger.error('获取客户端环境失败:', err)
     res.status(500).json({ code: 500, message: '获取客户端环境失败' })
   }
 })

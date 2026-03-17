@@ -10,7 +10,9 @@ function sanitizeParams(obj) {
   for (const [key, value] of Object.entries(obj)) {
     if (SENSITIVE_KEYS.test(key)) {
       result[key] = "***";
-    } else if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    } else if (Array.isArray(value)) {
+      result[key] = value.map(v => (typeof v === 'object' && v !== null) ? sanitizeParams(v) : v);
+    } else if (typeof value === "object" && value !== null) {
       result[key] = sanitizeParams(value);
     } else {
       result[key] = value;
@@ -24,7 +26,7 @@ function collectParams(req) {
   const hasBody = req.body && typeof req.body === "object" && Object.keys(req.body).length > 0;
   if (!hasQuery && !hasBody) return "";
   const data = {};
-  if (hasQuery) data.query = req.query;
+  if (hasQuery) data.query = sanitizeParams(req.query);
   if (hasBody) data.body = sanitizeParams(req.body);
   return JSON.stringify(data).substring(0, 2000);
 }
